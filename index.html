@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#11161a" />
+    <meta
+      name="description"
+      content="ROOM FACTORY AR — миниатюрный завод, который вы строите на столе в дополненной реальности."
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <title>ROOM FACTORY AR</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="canvas-host" class="canvas-host">
+        <canvas id="scene-canvas" class="scene-canvas" aria-label="3D-сцена завода"></canvas>
+      </div>
+      <div id="ui-root" class="ui-root"></div>
+      <div id="notifications" class="notifications" aria-live="polite" aria-atomic="false"></div>
+    </div>
+    <noscript>
+      <div class="noscript">Для работы Room Factory AR нужен JavaScript.</div>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

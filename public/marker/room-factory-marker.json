@@ -1,0 +1,23 @@
+{
+  "imagePath": "room-factory-marker_luminance.png",
+  "metadata": null,
+  "name": "room-factory-marker",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 1200,
+    "height": 1600,
+    "isRotated": false,
+    "originalWidth": 1200,
+    "originalHeight": 1600
+  },
+  "resources": {
+    "originalImage": "room-factory-marker_original.png",
+    "croppedImage": "room-factory-marker_cropped.png",
+    "thumbnailImage": "room-factory-marker_thumbnail.png",
+    "luminanceImage": "room-factory-marker_luminance.png"
+  },
+  "created": 1793016862394,
+  "updated": 1793016862394
+}

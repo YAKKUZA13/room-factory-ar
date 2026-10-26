@@ -1,0 +1,35 @@
+{
+  "name": "room-factory-ar",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Room Factory AR — a miniature AR factory builder powered by Three.js and the 8th Wall engine binary",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "marker:generate": "node scripts/generate-marker.mjs",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "build": "npm run typecheck && npm run test && vite build && node scripts/copy-xr-assets.mjs && node scripts/verify-dist.mjs",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@8thwall/engine-binary": "1.0.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@8thwall/image-target-cli": "1.0.0",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.5",
+    "@types/three": "0.186.0",
+    "sharp": "0.34.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

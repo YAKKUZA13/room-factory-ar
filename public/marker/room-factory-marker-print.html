@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ROOM FACTORY AR — карточка для печати</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 18mm 12mm; background: #f2f0e8; color: #171b1d; font-family: Arial, sans-serif; }
+  .sheet { max-width: 190mm; margin: 0 auto; }
+  h1 { margin: 0 0 4mm; font-size: 20pt; letter-spacing: 0.02em; }
+  .warning { padding: 4mm 5mm; border-left: 4px solid #D75F46; background: #fff3ee; font-size: 10.5pt; line-height: 1.45; margin-bottom: 5mm; }
+  .marker-wrap { width: 120mm; height: 160mm; margin: 14mm auto 0; border: 0.4mm dashed #999; position: relative; background: #fff; }
+  .marker-wrap img { width: 120mm; height: 160mm; display: block; image-rendering: auto; }
+  .top-arrow { position: absolute; top: -9mm; left: 50%; transform: translateX(-50%); font-size: 9pt; color: #333; white-space: nowrap; }
+  .ruler { width: 100mm; height: 10mm; margin: 4mm auto 0; border: 0.3mm solid #333; display: flex; }
+  .ruler span { flex: 1; border-right: 0.3mm solid #333; position: relative; }
+  .ruler span:last-child { border-right: 0; }
+  .ruler span::after { content: ""; position: absolute; left: 50%; bottom: 0; height: 4mm; border-left: 0.3mm solid #333; }
+  .ruler-label { text-align: center; font-size: 9pt; margin-top: 1mm; }
+  .meta { margin-top: 6mm; font-size: 10pt; line-height: 1.55; }
+  .meta code { background: #e9e6dc; padding: 0.5mm 1.5mm; border-radius: 1mm; }
+  .checklist { margin-top: 4mm; font-size: 10pt; line-height: 1.55; padding-left: 5mm; }
+  @page { size: A4 portrait; margin: 10mm; }
+  @media print {
+    body { padding: 0; background: #fff; }
+    .warning { background: #fff; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>ROOM FACTORY AR · карточка-маркер</h1>
+  <div class="warning">
+    <strong>Печать только при 100% масштабе.</strong> Отключите «по размеру страницы» / «fit to page».
+    После печати проверьте линейкой: изображение должно быть ровно <strong>120 × 160 мм</strong>.
+    Не перемещайте карточку после привязки завода.
+  </div>
+  <div class="marker-wrap">
+    <div class="top-arrow">▲ ВЕРХ · держите этой стороной вверх</div>
+    <img src="room-factory-marker.png" alt="Маркер ROOM FACTORY AR" />
+  </div>
+  <div class="ruler" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div class="ruler-label">контрольная ширина 100 мм</div>
+  <div class="meta">
+    Физический размер: <code>120 × 160 мм</code> (портрет).<br />
+    Уникальный image target: <code>room-factory-marker</code>.<br />
+    Печать: обычная бумага, матовая; избегайте бликов и ламинации.<br />
+    Свет: равномерное освещение, без сильных теней на карточке.
+  </div>
+  <ol class="checklist">
+    <li>Положите карточку на стол рядом с местом завода.</li>
+    <li>Откройте игру, нажмите «Привязать карточкой».</li>
+    <li>Наведите камеру и держите её неподвижно 1–2 секунды.</li>
+    <li>Не перемещайте карточку после успешной привязки.</li>
+  </ol>
+  <p class="no-print">Печать: Ctrl/Cmd + P. Масштаб страницы — 100%, поля — стандартные.</p>
+</div>
+</body>
+</html>

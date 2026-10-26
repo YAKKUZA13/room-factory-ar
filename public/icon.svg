@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Room Factory AR">
+  <rect width="64" height="64" rx="12" fill="#E7AB20"/>
+  <rect x="6" y="6" width="52" height="52" rx="7" fill="#252A2D"/>
+  <path d="M14 46V22h10l8 10 8-10h10v24H40V32l-8 9-8-9v14z" fill="#E7AB20"/>
+  <circle cx="50" cy="14" r="4" fill="#238B9B"/>
+  <circle cx="14" cy="14" r="2.5" fill="#CBD3D3"/>
+</svg>
