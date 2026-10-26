@@ -6,7 +6,10 @@ import {
   GRID_WIDTH,
   MAX_BUILDING_ID_LENGTH,
   MAX_FACTORY_ID_LENGTH,
+  MAX_BUILDINGS,
+  MAX_LEVELS,
 } from './constants';
+import { isItem, isRecipe, RECIPES } from './recipes';
 import {
   cellKey,
   isDirection,
@@ -70,29 +73,39 @@ function parseBuilding(
     return invalid(`Некорректный поворот здания ${id}.`, { rotation });
   }
   const spec = BUILDING_SPECS[type as BuildingType];
+  const level = input.level ?? 0;
+  if (!isIntegerInRange(level, 0, MAX_LEVELS - 1)) return invalid(`Некорректный этаж здания ${id}.`);
+  if (input.resource !== undefined && (type !== 'extractor' || (input.resource !== 'ore' && input.resource !== 'copper'))) return invalid(`Некорректный ресурс здания ${id}.`);
+  if (input.recipe !== undefined && (type !== 'processor' || !isRecipe(input.recipe))) return invalid(`Некорректный рецепт здания ${id}.`);
+  if (input.liftDirection !== undefined && (type !== 'lift' || !['up', 'down'].includes(String(input.liftDirection)))) return invalid(`Некорректное направление подъёмника ${id}.`);
+  const recipe = RECIPES[isRecipe(input.recipe) ? input.recipe : 'parts'];
+  const capacity = type === 'processor' ? recipe.inputs.length : spec.bufferCapacity;
   if (
     !isFiniteNumber(progress) ||
     progress < -1e-9 ||
-    progress > spec.cycleSeconds + FIXED_DT
+    progress > (type === 'processor' ? recipe.seconds : spec.cycleSeconds) + FIXED_DT
   ) {
     return invalid(`Некорректный progress здания ${id}.`, { progress });
   }
   if (!Array.isArray(buffer)) {
     return invalid(`Некорректный буфер здания ${id}.`);
   }
-  if (buffer.length > spec.bufferCapacity) {
+  if (buffer.length > capacity) {
     return invalid(`Буфер здания ${id} превышает ёмкость.`, {
       length: buffer.length,
-      capacity: spec.bufferCapacity,
+      capacity,
     });
   }
   const normalizedBuffer: ItemType[] = [];
   for (const item of buffer) {
-    if (item !== 'ore') {
+    if (!isItem(item) || (type === 'processor' && !recipe.inputs.includes(item))) {
       return invalid(`Неизвестный предмет в буфере здания ${id}.`, { item });
     }
-    normalizedBuffer.push('ore');
+    normalizedBuffer.push(item);
   }
+  if (type === 'processor' && recipe.inputs.some(item => normalizedBuffer.filter(x => x === item).length > recipe.inputs.filter(x => x === item).length)) return invalid(`Буфер не соответствует рецепту ${id}.`);
+  const output = input.output ?? [];
+  if (!Array.isArray(output) || output.length > 1 || output.some(item => !isItem(item) || type !== 'processor' || item !== recipe.output)) return invalid(`Некорректный выходной буфер ${id}.`);
   if (purchaseSource !== 'starter' && purchaseSource !== 'credits') {
     return invalid(`Некорректный источник покупки здания ${id}.`, { purchaseSource });
   }
@@ -106,6 +119,10 @@ function parseBuilding(
     x: x as number,
     z: z as number,
     rotation,
+    level,
+    ...(type === 'extractor' ? { resource: (input.resource ?? 'ore') as 'ore' | 'copper' } : {}),
+    ...(type === 'processor' ? { recipe: (input.recipe ?? 'parts') as Building['recipe'], output: output as ItemType[] } : {}),
+    ...(type === 'lift' ? { liftDirection: (input.liftDirection ?? 'up') as 'up' | 'down' } : {}),
     progress: Math.max(0, progress),
     buffer: normalizedBuffer,
     purchaseSource,
@@ -168,13 +185,13 @@ export function validateFactoryState(input: unknown): Result<FactoryState, Domai
   if (!Array.isArray(input.buildings)) {
     return invalid('Список зданий должен быть массивом.');
   }
-  if (input.buildings.length > GRID_WIDTH * GRID_HEIGHT) {
+  if (input.buildings.length > MAX_BUILDINGS) {
     return invalid('Слишком много зданий.');
   }
 
   const starterInventory = {} as Record<BuildingType, number>;
   for (const type of BUILDING_TYPES) {
-    const value = input.starterInventory[type];
+    const value = input.starterInventory[type] ?? (type === 'lift' ? 0 : undefined);
     if (!isIntegerInRange(value, 0, MAX_STARTER_PER_TYPE)) {
       return invalid(`Некорректный стартовый запас для ${type}.`, { value });
     }
@@ -192,7 +209,7 @@ export function validateFactoryState(input: unknown): Result<FactoryState, Domai
       return invalid(`Дублирующийся ID здания: ${building.id}.`);
     }
     ids.add(building.id);
-    const key = cellKey(building.x, building.z);
+    const key = cellKey(building.x, building.z, building.level ?? 0);
     if (cells.has(key)) {
       return invalid(`Две постройки в одной клетке: ${key}.`);
     }

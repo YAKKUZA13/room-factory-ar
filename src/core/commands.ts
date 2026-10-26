@@ -1,4 +1,5 @@
-import { BUILDING_SPECS, BUILDING_TYPES } from './constants';
+import { BUILDING_SPECS, BUILDING_TYPES, MAX_BUILDINGS, MAX_LEVELS } from './constants';
+import { isRecipe } from './recipes';
 import { buildingCost, placementPrice } from './economy';
 import { buildOccupancy, cellKey, isDirection, isInsideGrid, nextDirection } from './grid';
 import { createInitialFactoryState } from './initial-world';
@@ -54,6 +55,19 @@ export function applyCommand(
       return removeBuilding(state, command.id);
     case 'toggle':
       return toggleBuilding(state, command.id, command.enabled);
+    case 'configure': {
+      const building = state.buildings.find(b => b.id === command.id);
+      if (!building) return fail('building-not-found', 'Здание не найдено.');
+      if (!validConfiguration(building.type, command)) return fail('invalid-command', 'Недопустимая настройка модуля.');
+      if (building.buffer.length || building.output?.length) return fail('invalid-command', 'Дождитесь освобождения буфера перед сменой рецепта.');
+      const next = cloneFactoryState(state);
+      const target = next.buildings.find(b => b.id === command.id)!;
+      if (command.recipe !== undefined) target.recipe = command.recipe;
+      if (command.resource !== undefined) target.resource = command.resource;
+      if (command.liftDirection !== undefined) target.liftDirection = command.liftDirection;
+      target.progress = 0;
+      return ok(next);
+    }
     case 'pause': {
       if (typeof command.paused !== 'boolean') {
         return fail('invalid-command', 'Некорректное значение паузы.');
@@ -100,14 +114,17 @@ function placeBuilding(
       rotation: command.rotation,
     });
   }
+  const level = command.level ?? 0;
+  if (!Number.isInteger(level) || level < 0 || level >= MAX_LEVELS) return fail('out-of-bounds', 'Этаж вне доступного диапазона.');
+  if (!validConfiguration(command.buildingType, command)) return fail('invalid-command', 'Недопустимая настройка модуля.');
   const occupancy = buildOccupancy(state.buildings);
-  if (occupancy.has(cellKey(command.x, command.z))) {
+  if (occupancy.has(cellKey(command.x, command.z, level))) {
     return fail('occupied', 'Клетка уже занята.', {
       x: command.x,
       z: command.z,
     });
   }
-  if (state.buildings.length >= state.width * state.height) {
+  if (state.buildings.length >= MAX_BUILDINGS) {
     return fail('size-limit', 'Достигнут лимит зданий.');
   }
 
@@ -138,6 +155,10 @@ function placeBuilding(
     x: command.x,
     z: command.z,
     rotation: command.rotation,
+    level,
+    ...(command.buildingType === 'extractor' ? { resource: command.resource ?? 'ore' } : {}),
+    ...(command.buildingType === 'processor' ? { recipe: command.recipe ?? 'parts', output: [] } : {}),
+    ...(command.buildingType === 'lift' ? { liftDirection: command.liftDirection ?? 'up' } : {}),
     progress: 0,
     buffer: [],
     purchaseSource: price.source,
@@ -146,6 +167,12 @@ function placeBuilding(
   next.buildings.push(building);
   next.nextBuildingOrdinal = nextOrdinal;
   return ok(next);
+}
+
+function validConfiguration(type: Building['type'], value: { resource?: unknown; recipe?: unknown; liftDirection?: unknown }): boolean {
+  return (value.resource === undefined || (type === 'extractor' && (value.resource === 'ore' || value.resource === 'copper')))
+    && (value.recipe === undefined || (type === 'processor' && isRecipe(value.recipe)))
+    && (value.liftDirection === undefined || (type === 'lift' && (value.liftDirection === 'up' || value.liftDirection === 'down')));
 }
 
 function rotateBuilding(

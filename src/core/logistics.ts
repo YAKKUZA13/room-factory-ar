@@ -1,5 +1,6 @@
 import { CONVEYOR_MOVE_SECONDS } from './constants';
 import { buildOccupancy, cellKey, forwardCell, rearCell, sortedBuildings } from './grid';
+import { acceptsItem } from './recipes';
 import type {
   Building,
   FactoryState,
@@ -19,9 +20,10 @@ export interface TransferIntent {
   targetZ: number;
 }
 
-function targetAccepts(source: Building, target: Building): boolean {
+function targetAccepts(source: Building, target: Building, item: ItemType): boolean {
   if (!target.enabled) return false;
-  if (target.buffer.length >= capacityOf(target)) return false;
+  if (!acceptsItem(target, item)) return false;
+  if (target.type === 'lift') return true;
   if (target.type === 'processor') {
     // Processors accept from any orthogonal side; source is guaranteed adjacent.
     return true;
@@ -32,17 +34,6 @@ function targetAccepts(source: Building, target: Building): boolean {
     return rear.x === source.x && rear.z === source.z;
   }
   return false;
-}
-
-function capacityOf(building: Building): number {
-  switch (building.type) {
-    case 'extractor':
-    case 'conveyor':
-    case 'processor':
-      return 1;
-    case 'generator':
-      return 0;
-  }
 }
 
 /**
@@ -59,25 +50,31 @@ export function planTransfers(
   const intents: TransferIntent[] = [];
 
   for (const source of sortedBuildings(state.buildings)) {
-    if (!source.enabled || source.buffer.length === 0) continue;
+    const item = (source.type === 'processor' ? source.output : source.buffer)?.[0];
+    if (!source.enabled || !item) continue;
 
     if (source.type === 'extractor') {
       // ready immediately when it holds ore
-    } else if (source.type === 'conveyor') {
+    } else if (source.type === 'conveyor' || source.type === 'lift') {
       if (source.progress + EPSILON < CONVEYOR_MOVE_SECONDS) continue;
-    } else {
+    } else if (source.type !== 'processor') {
       continue;
     }
 
     const targetCell = forwardCell(source);
-    const target = occupancy.get(cellKey(targetCell.x, targetCell.z));
-    if (!target) continue;
-    if (!targetAccepts(source, target)) continue;
+    const level = source.level ?? 0;
+    let target = occupancy.get(cellKey(targetCell.x, targetCell.z, level));
+    if (!target || !targetAccepts(source, target, item)) {
+      if (source.type !== 'lift') continue;
+      const otherLevel = level + (source.liftDirection === 'down' ? -1 : 1);
+      target = occupancy.get(cellKey(source.x, source.z, otherLevel));
+      if (!target || target.type !== 'lift' || !targetAccepts(source, target, item)) continue;
+    }
 
     intents.push({
       sourceId: source.id,
       targetId: target.id,
-      item: 'ore',
+      item,
       sourceX: source.x,
       sourceZ: source.z,
       targetX: target.x,
@@ -114,12 +111,11 @@ export function commitTransfers(
     const source = byId.get(intent.sourceId);
     const target = byId.get(intent.targetId);
     if (!source || !target) continue;
-    const item = source.buffer.shift();
+    const item = (source.type === 'processor' ? source.output : source.buffer)?.shift();
     if (!item) continue;
     target.buffer.push(item);
-    if (source.type === 'conveyor') source.progress = 0;
-    if (target.type === 'conveyor') target.progress = 0;
-    if (target.type === 'processor') target.progress = 0;
+    if (source.type === 'conveyor' || source.type === 'lift') source.progress = 0;
+    if (target.type === 'conveyor' || target.type === 'lift') target.progress = 0;
     events.push({
       type: 'transfer',
       fromId: source.id,
@@ -132,5 +128,5 @@ export function commitTransfers(
 
 /** Verifies the item-conservation invariant used by unit tests and diagnostics. */
 export function countOre(state: FactoryState): number {
-  return state.buildings.reduce((sum, building) => sum + building.buffer.length, 0);
+  return state.buildings.reduce((sum, building) => sum + building.buffer.length + (building.output?.length ?? 0), 0);
 }

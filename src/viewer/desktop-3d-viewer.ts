@@ -59,8 +59,8 @@ export class Desktop3DViewer {
     this.factoryRenderer = factoryRenderer;
     this.callbacks = callbacks;
 
-    this.scene.background = new THREE.Color(0x11161a);
-    this.scene.fog = new THREE.Fog(0x11161a, 3.5, 8);
+    this.scene.background = new THREE.Color(0xbfc5ca);
+    this.scene.fog = new THREE.Fog(0xbfc5ca, 5, 12);
 
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.01, 60);
     this.camera.position.set(1.55, 1.2, 1.7);
@@ -114,6 +114,14 @@ export class Desktop3DViewer {
     this.lastFrameTime = performance.now();
     this.fpsWindowStart = this.lastFrameTime;
     this.rafId = requestAnimationFrame(this.frame);
+  }
+
+  focusLevel(heightMeters: number): void {
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    this.target.y = heightMeters + 0.14;
+    this.controls.target.copy(this.target);
+    this.camera.position.copy(this.target).add(offset);
+    this.controls.update();
   }
 
   stop(): void {
@@ -208,6 +216,8 @@ export class Desktop3DViewer {
     const height = Math.max(1, parent?.clientHeight ?? window.innerHeight);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    // Reserve space for the bottom mobile dock; keep the factory in the usable scene area.
+    this.camera.setViewOffset(width, height, 0, Math.round(height * (width < 700 ? 0.14 : 0.06)), width, height);
     this.renderer.setSize(width, height, false);
     if (!this.userInteracted) this.frameFactory();
   }
@@ -226,46 +236,19 @@ export class Desktop3DViewer {
   }
 
   private buildEnvironment(): void {
-    const tableGeometry = new THREE.CylinderGeometry(1.38, 1.42, 0.07, 64);
-    const tableMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1b2125,
-      roughness: 0.8,
-      metalness: 0.25,
-    });
-    const table = new THREE.Mesh(tableGeometry, tableMaterial);
-    table.position.y = -0.085;
-    this.scene.add(table);
-    this.ownedGeometries.push(tableGeometry);
-    this.ownedMaterials.push(tableMaterial);
+    const grid = new THREE.GridHelper(12, 60, 0xa1abb4, 0xb3bdc5);
+    grid.position.y = -0.018;
+    grid.material.transparent = true;
+    grid.material.opacity = 0.3;
+    this.scene.add(grid);
+    this.ownedGeometries.push(grid.geometry);
+    this.ownedMaterials.push(grid.material);
 
-    const rimGeometry = new THREE.TorusGeometry(1.39, 0.008, 6, 96);
-    const rimMaterial = new THREE.MeshBasicMaterial({ color: 0xe7ab20, transparent: true, opacity: 0.55 });
-    const rim = new THREE.Mesh(rimGeometry, rimMaterial);
-    rim.rotation.x = -Math.PI / 2;
-    rim.position.y = -0.048;
-    this.scene.add(rim);
-    this.ownedGeometries.push(rimGeometry);
-    this.ownedMaterials.push(rimMaterial);
-
-    const shadowGeometry = new THREE.CircleGeometry(0.9, 48);
-    const shadowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity: 0.32,
-      depthWrite: false,
-    });
-    const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = -0.046;
-    this.scene.add(shadow);
-    this.ownedGeometries.push(shadowGeometry);
-    this.ownedMaterials.push(shadowMaterial);
-
-    const hemisphere = new THREE.HemisphereLight(0xfff3d9, 0x1c2429, 1.35);
-    const key = new THREE.DirectionalLight(0xfff0cc, 1.9);
+    const hemisphere = new THREE.HemisphereLight(0xf2f5f7, 0x788591, 1.35);
+    const key = new THREE.DirectionalLight(0xffffff, 1.9);
     key.position.set(2.4, 4, 2.2);
     key.castShadow = false;
-    const fill = new THREE.DirectionalLight(0x4d9aa8, 0.55);
+    const fill = new THREE.DirectionalLight(0xaac1d2, 0.55);
     fill.position.set(-2.5, 1.8, -2.2);
     this.scene.add(hemisphere, key, fill);
   }

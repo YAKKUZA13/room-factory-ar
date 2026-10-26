@@ -49,7 +49,8 @@ const TEMPLATE = `
 <section class="screen screen--start" data-screen="start">
   <div class="screen__texture" aria-hidden="true"></div>
   <div class="start-card">
-    <div class="eyebrow">Niantic Spatial · 8th Wall XR Engine</div>
+    <svg class="start-mark" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="m50 6 38 22v44L50 94 12 72V28zm0 44v44M12 28l38 22 38-22M50 6v44M12 72l38-22 38 22"/></svg>
+    <div class="eyebrow">Пространственная мастерская</div>
     <h1 class="logo" aria-label="Room Factory AR">
       <span class="logo__room">ROOM</span>
       <span class="logo__factory">FACTORY</span>
@@ -70,6 +71,7 @@ const TEMPLATE = `
     <div id="fresh-panel" class="start-actions">
       <button id="btn-start-ar" class="btn btn--primary btn--wide" data-testid="start-ar">${uiStrings.startAr}</button>
       <button id="btn-start-3d" class="btn btn--wide" data-testid="start-3d">${uiStrings.start3d}</button>
+      <button id="btn-demo" class="link" data-testid="start-demo">Две башни · работающий пример ↗</button>
     </div>
 
     <div class="start-links">
@@ -244,6 +246,7 @@ const TEMPLATE = `
     <button id="menu-close" class="icon-btn" aria-label="${uiStrings.close}">✕</button>
   </div>
   <div class="menu-list">
+    <button id="menu-demo" class="menu-item" data-testid="menu-demo">Пример: две башни</button>
     <button id="menu-pause" class="menu-item">${uiStrings.pause}</button>
     <button id="menu-save" class="menu-item" data-testid="menu-save">${uiStrings.save}</button>
     <button id="menu-bind" class="menu-item">${uiStrings.bindMarker}</button>

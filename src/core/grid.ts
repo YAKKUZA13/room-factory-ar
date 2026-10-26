@@ -24,8 +24,8 @@ export function oppositeDirection(direction: Direction): Direction {
   return ((direction + 2) % 4) as Direction;
 }
 
-export function cellKey(x: number, z: number): string {
-  return `${x}:${z}`;
+export function cellKey(x: number, z: number, level = 0): string {
+  return `${x}:${z}:${level}`;
 }
 
 export function cellIndex(x: number, z: number): number {
@@ -45,14 +45,15 @@ export function buildingAt(
   buildings: readonly Building[],
   x: number,
   z: number,
+  level = 0,
 ): Building | undefined {
-  return buildings.find((building) => building.x === x && building.z === z);
+  return buildings.find((building) => building.x === x && building.z === z && (building.level ?? 0) === level);
 }
 
 export function buildOccupancy(buildings: readonly Building[]): Map<string, Building> {
   const map = new Map<string, Building>();
   for (const building of buildings) {
-    map.set(cellKey(building.x, building.z), building);
+    map.set(cellKey(building.x, building.z, building.level ?? 0), building);
   }
   return map;
 }
@@ -114,5 +115,5 @@ export function sortedBuildings(buildings: readonly Building[]): Building[] {
 
 /** Sum of all ore currently stored in buildings (extractor, conveyor, processor). */
 export function countItems(state: FactoryState): number {
-  return state.buildings.reduce((total, building) => total + building.buffer.length, 0);
+  return state.buildings.reduce((total, building) => total + building.buffer.length + (building.output?.length ?? 0), 0);
 }

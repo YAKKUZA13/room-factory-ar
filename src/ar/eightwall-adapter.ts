@@ -9,6 +9,7 @@ import type {
 } from './tracking-port';
 import { poseFromXR } from './transforms';
 import { loadMarkerMetadata, loadXrRuntime } from './xr-loader';
+import { bindCanvasViewport } from './canvas-viewport';
 import type {
   XR8Api,
   XR8CameraStatusDetail,
@@ -59,6 +60,7 @@ export class EightWallAdapter implements TrackingPort {
   private canvas: HTMLCanvasElement | null = null;
   private modules: XR8PipelineModule[] = [];
   private started = false;
+  private releaseViewport: (() => void) | null = null;
   private starting = false;
   private startResolve: (() => void) | null = null;
   private startReject: ((error: Error) => void) | null = null;
@@ -123,6 +125,7 @@ export class EightWallAdapter implements TrackingPort {
         appModule,
       ];
       xr8.addCameraPipelineModules(this.modules);
+      this.releaseViewport = bindCanvasViewport(canvas);
 
       await new Promise<void>((resolve, reject) => {
         this.startResolve = resolve;
@@ -149,6 +152,8 @@ export class EightWallAdapter implements TrackingPort {
         camera: this.cameraStatus,
       });
     } catch (error) {
+      this.releaseViewport?.();
+      this.releaseViewport = null;
       this.starting = false;
       this.clearStartPromise();
       this.setStatus('lost');
@@ -170,6 +175,8 @@ export class EightWallAdapter implements TrackingPort {
   }
 
   async stop(): Promise<void> {
+    this.releaseViewport?.();
+    this.releaseViewport = null;
     this.clearStartPromise();
     const xr8 = this.xr8;
     if (xr8) {

@@ -5,6 +5,7 @@ export function cloneBuilding(building: Building): Building {
   return {
     ...building,
     buffer: building.buffer.slice(),
+    ...(building.output ? { output: building.output.slice() } : {}),
   };
 }
 
@@ -71,6 +72,10 @@ export function factoryStatesEqual(a: FactoryState, b: FactoryState): boolean {
       left.x !== right.x ||
       left.z !== right.z ||
       left.rotation !== right.rotation ||
+      (left.level ?? 0) !== (right.level ?? 0) ||
+      left.resource !== right.resource || left.recipe !== right.recipe ||
+      left.liftDirection !== right.liftDirection ||
+      JSON.stringify(left.output ?? []) !== JSON.stringify(right.output ?? []) ||
       left.progress !== right.progress ||
       left.purchaseSource !== right.purchaseSource ||
       left.enabled !== right.enabled ||

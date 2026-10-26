@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BUILDING_SPECS } from '../core/constants';
 import type { Building } from '../core/types';
+import { ITEM_COLORS } from '../core/recipes';
 
 export interface ConveyorMaterials {
   graphite: THREE.MeshStandardMaterial;
@@ -147,6 +148,7 @@ export function createConveyorVisual(materials: ConveyorMaterials): ConveyorVisu
       const hasItem = building.buffer.length > 0;
       item.visible = hasItem;
       if (hasItem) {
+        itemMaterial.color.set(ITEM_COLORS[building.buffer[0]!]);
         const t = Math.max(
           0,
           Math.min(1, building.progress / BUILDING_SPECS.conveyor.cycleSeconds),

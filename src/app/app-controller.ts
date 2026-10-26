@@ -21,10 +21,13 @@ import {
   AUTOSAVE_INTERVAL_MS,
   COMMAND_SAVE_DEBOUNCE_MS,
   MARKER_TARGET_NAME,
+  LEVEL_HEIGHT,
+  MAX_LEVELS,
 } from '../core/constants';
 import { getEnergyStats } from '../core/economy';
-import { buildOccupancy, cellKey, countItems } from '../core/grid';
+import { buildOccupancy, cellKey, countItems, nextDirection } from '../core/grid';
 import { createInitialFactoryState } from '../core/initial-world';
+import { createTowerDemo } from '../core/tower-demo';
 import { cloneFactoryState } from '../core/state';
 import type {
   BuildingType,
@@ -134,6 +137,9 @@ export class AppController {
   private placementRotation: Direction = 0;
   private selectedId: string | null = null;
   private hoverCell: GridPoint | null = null;
+  private pendingCell: GridPoint | null = null;
+  private activeLevel = 0;
+  private overview = false;
   private markerStatus: MarkerStatus = 'not-configured';
   private lastMarkerObservation: MarkerObservation | null = null;
   private bindingMode: BindingMode = 'bind';
@@ -191,12 +197,17 @@ export class AppController {
       onSelect: (type) => this.selectTool(type),
       onDeleteMode: () => this.selectDeleteMode(),
       onCancel: () => this.cancelTool(),
-      onRotate: () => this.rotateAction(),
+      onRotate: (clockwise) => this.rotateAction(clockwise),
+      onConfirm: () => this.confirmPlacement(),
+      onLevel: (level) => this.changeLevel(level),
+      onOverview: () => this.toggleOverview(),
     });
     this.inspector = new Inspector(inspectorRoot, {
       onClose: () => this.selectBuilding(null),
       onDelete: (id) => void this.requestRemove(id),
       onToggle: (id, enabled) => this.dispatchCommand({ type: 'toggle', id, enabled }),
+      onRotate: (id, clockwise) => this.dispatchCommand({ type: 'rotate', id, clockwise }),
+      onConfigure: (command) => this.dispatchCommand(command),
     });
     this.diagnosticsPanel = new DiagnosticsPanel(
       this.screens.diagnosticsDialog,
@@ -322,6 +333,8 @@ export class AppController {
   // ------------------------------------------------------------- UI wiring --
 
   private wireUi(): void {
+    document.getElementById('btn-demo')!.addEventListener('click', () => void this.openTowerDemo());
+    document.getElementById('menu-demo')!.addEventListener('click', () => void this.openTowerDemo());
     this.screens.start3d.addEventListener('click', () => this.startDesktop());
     this.screens.continue3d.addEventListener('click', () => this.startDesktop());
     this.screens.startAr.addEventListener('click', () => void this.startArFlow());
@@ -567,7 +580,7 @@ export class AppController {
       onFrame: (delta, elapsed) => this.onRenderFrame(delta, elapsed),
       onTap: (x, y) => this.handleCanvasTap(x, y),
       onHover: (x, y) => this.handleHover(x, y),
-      onHoverEnd: () => this.clearHover(),
+      onHoverEnd: () => { if (!this.pendingCell) this.clearHover(); },
     });
     this.viewer.setPerformanceMode(this.preferences.performanceMode);
   }
@@ -1242,7 +1255,7 @@ export class AppController {
     this.updateTutorial(state);
     this.syncInspector(state);
     this.screens.setPaused(state.isPaused);
-    this.toolbar.update(state, this.editTool, this.placementRotation);
+    this.toolbar.update(state, this.editTool, this.toolbarRotation());
   }
 
   private syncHud(state: Readonly<FactoryState>): void {
@@ -1336,16 +1349,18 @@ export class AppController {
   // ------------------------------------------------------------ edit tools --
 
   private selectTool(type: BuildingType): void {
+    if (this.overview) this.changeLevel(this.activeLevel);
     if (!this.canEdit()) {
       this.notifications.warning(uiStrings.arEditLocked);
       return;
     }
     this.editTool = { mode: 'place', buildingType: type, rotation: this.placementRotation };
     this.selectBuilding(null);
+    this.clearHover();
     this.screens.setPlacementHint(uiStrings.toolHint);
     if (this.hoverCell) {
       const occupied = buildOccupancy(this.engine.state.buildings).has(
-        cellKey(this.hoverCell.x, this.hoverCell.z),
+        cellKey(this.hoverCell.x, this.hoverCell.z, this.activeLevel),
       );
       this.factoryRenderer.setHoverCell(this.hoverCell, !occupied);
       this.factoryRenderer.setBuildingGhost(
@@ -1355,7 +1370,7 @@ export class AppController {
         !occupied,
       );
     }
-    this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+    this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
     this.diagnosticsLog.info('edit', `tool place ${type}`);
   }
 
@@ -1368,34 +1383,37 @@ export class AppController {
     this.selectBuilding(null);
     this.screens.setPlacementHint(uiStrings.deleteHint);
     this.clearHover();
-    this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+    this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
   }
 
   private cancelTool(): void {
     this.editTool = { mode: 'inspect' };
     this.screens.setPlacementHint(null);
     this.clearHover();
-    this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+    this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
   }
 
   private clearHover(): void {
+    this.pendingCell = null;
+    this.toolbar.setPending(false);
     this.hoverCell = null;
     this.factoryRenderer.setHoverCell(null);
     this.factoryRenderer.setBuildingGhost(null, null, this.placementRotation, false);
   }
 
-  private rotateAction(): void {
+  private rotateAction(clockwise = true): void {
+    if (!this.canEdit()) return;
     if (this.editTool.mode === 'place') {
-      this.placementRotation = ((this.placementRotation + 1) % 4) as Direction;
+      this.placementRotation = nextDirection(this.placementRotation, clockwise);
       this.editTool = {
         mode: 'place',
         buildingType: this.editTool.buildingType,
         rotation: this.placementRotation,
       };
-      this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+      this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
       if (this.hoverCell) {
         const occupied = buildOccupancy(this.engine.state.buildings).has(
-          cellKey(this.hoverCell.x, this.hoverCell.z),
+          cellKey(this.hoverCell.x, this.hoverCell.z, this.activeLevel),
         );
         this.factoryRenderer.setBuildingGhost(
           this.editTool.buildingType,
@@ -1407,7 +1425,7 @@ export class AppController {
       return;
     }
     if (this.selectedId) {
-      this.dispatchCommand({ type: 'rotate', id: this.selectedId, clockwise: true });
+      this.dispatchCommand({ type: 'rotate', id: this.selectedId, clockwise });
     }
   }
 
@@ -1430,7 +1448,7 @@ export class AppController {
     this.screens.setPlacementHint(null);
     this.inspector.show(building, getEnergyStats(this.engine.state).brownout);
     this.factoryRenderer.setSelectedBuilding(id);
-    this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+    this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
   }
 
   private handleCanvasTap(clientX: number, clientY: number): void {
@@ -1444,6 +1462,7 @@ export class AppController {
     const canvas = this.getActiveCanvas();
     if (!camera || !canvas) return;
     const viewport = canvas.getBoundingClientRect();
+    if (this.overview) { this.notifications.warning('Выберите этаж стрелками слева, чтобы редактировать завод.'); return; }
 
     if (this.editTool.mode === 'delete') {
       const id = this.factoryRenderer.pickBuilding(clientX, clientY, camera, viewport);
@@ -1451,24 +1470,24 @@ export class AppController {
       return;
     }
     if (this.editTool.mode === 'place') {
+      const selected = this.factoryRenderer.pickBuilding(clientX, clientY, camera, viewport);
+      if (selected) { this.selectBuilding(selected); return; }
       const cell = this.factoryRenderer.pickCell(clientX, clientY, camera, viewport);
       if (!cell) {
         this.selectBuilding(null);
         return;
       }
       const occupancy = buildOccupancy(this.engine.state.buildings);
-      if (occupancy.has(cellKey(cell.x, cell.z))) {
+      if (occupancy.has(cellKey(cell.x, cell.z, this.activeLevel))) {
         this.notifications.warning(uiStrings.cellOccupied);
         return;
       }
-      this.dispatchCommand({
-        type: 'place',
-        buildingType: this.editTool.buildingType,
-        x: cell.x,
-        z: cell.z,
-        rotation: this.editTool.rotation,
-      });
-      this.clearHover();
+      this.pendingCell = cell;
+      this.hoverCell = cell;
+      this.factoryRenderer.setHoverCell(cell, true);
+      this.factoryRenderer.setBuildingGhost(this.editTool.buildingType, cell, this.placementRotation, true);
+      this.toolbar.setPending(true);
+      this.screens.setPlacementHint('Поверните макет и нажмите «Установить»');
       return;
     }
     const id = this.factoryRenderer.pickBuilding(clientX, clientY, camera, viewport);
@@ -1476,6 +1495,7 @@ export class AppController {
   }
 
   private handleHover(clientX: number, clientY: number): void {
+    if (this.pendingCell || this.overview) return;
     if (this.mode !== 'desktop') return;
     const camera = this.getActiveCamera();
     if (!camera) return;
@@ -1486,7 +1506,7 @@ export class AppController {
         this.clearHover();
         return;
       }
-      const occupied = buildOccupancy(this.engine.state.buildings).has(cellKey(cell.x, cell.z));
+      const occupied = buildOccupancy(this.engine.state.buildings).has(cellKey(cell.x, cell.z, this.activeLevel));
       this.hoverCell = cell;
       this.factoryRenderer.setHoverCell(cell, !occupied);
       this.factoryRenderer.setBuildingGhost(
@@ -1515,7 +1535,64 @@ export class AppController {
     return this.session.canEdit() && !this.correctionDialogOpen;
   }
 
+  private confirmPlacement(): void {
+    if (!this.canEdit() || this.overview || !this.pendingCell || this.editTool.mode !== 'place') return;
+    const cell = this.pendingCell;
+    if (this.dispatchCommand({ type: 'place', buildingType: this.editTool.buildingType, x: cell.x, z: cell.z,
+      rotation: this.placementRotation, level: this.activeLevel, ...this.toolbar.getConfiguration(this.editTool.buildingType) })) {
+      this.clearHover();
+      this.screens.setPlacementHint('Следующий модуль: коснитесь свободной клетки');
+    }
+  }
+
+  private async openTowerDemo(): Promise<void> {
+    this.screens.menuDialog.close();
+    if (this.engine.state.buildings.length) {
+      const result = await this.screens.confirm({title:'Открыть пример?',message:'Текущий завод будет заменён работающим примером двух башен. Экспортируйте его через меню, если хотите сохранить отдельно.',confirmLabel:'Открыть пример'});
+      if (!result.confirmed) return;
+    }
+    this.engine.replaceState(createTowerDemo(this.engine.state.cellSizeMeters));
+    this.tutorial = {step:5,complete:true};
+    this.tutorialDirty = true;
+    if (this.mode === 'ar') await this.go3d();
+    else this.startDesktop();
+    this.changeLevel(0);
+    this.toggleOverview();
+    this.commandDirty = true;
+    this.scheduleSave();
+  }
+
+  private changeLevel(level: number): void {
+    if (!this.canEdit()) return;
+    this.activeLevel = Math.max(0, Math.min(MAX_LEVELS - 1, level));
+    this.overview = false;
+    this.cancelTool();
+    this.selectBuilding(null);
+    this.factoryRenderer.setActiveLevel(this.activeLevel);
+    this.viewer?.focusLevel(this.activeLevel * LEVEL_HEIGHT * this.engine.state.cellSizeMeters);
+    this.toolbar.setLevel(this.activeLevel, false);
+  }
+
+  private toggleOverview(): void {
+    if (!this.canEdit()) return;
+    if (this.overview) { this.changeLevel(this.activeLevel); return; }
+    this.cancelTool(); this.selectBuilding(null); this.overview = true;
+    this.factoryRenderer.setActiveLevel(this.activeLevel, true);
+    const highest = Math.max(0, ...this.engine.state.buildings.map(b => b.level ?? 0));
+    this.viewer?.focusLevel(highest * LEVEL_HEIGHT * this.engine.state.cellSizeMeters / 2);
+    this.toolbar.setLevel(this.activeLevel, true);
+    this.screens.setPlacementHint('Общий вид · выберите этаж для редактирования');
+  }
+
+  private toolbarRotation(): Direction {
+    return this.engine.state.buildings.find(b => b.id === this.selectedId)?.rotation ?? this.placementRotation;
+  }
+
   private dispatchCommand(command: FactoryCommand): boolean {
+    if (['place', 'rotate', 'remove', 'toggle', 'configure'].includes(command.type) && !this.canEdit()) {
+      this.notifications.warning(uiStrings.arEditLocked);
+      return false;
+    }
     const result = this.engine.dispatch(command);
     if (!result.ok) {
       this.notifications.error(this.localizedError(result.error));

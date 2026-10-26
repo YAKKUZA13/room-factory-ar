@@ -42,7 +42,7 @@ export async function debugSession(page: Page): Promise<string> {
   return page.evaluate(() => window.__ROOM_FACTORY_DEBUG__!.getSession());
 }
 
-export async function selectTool(page: Page, type: 'generator' | 'extractor' | 'conveyor' | 'processor'): Promise<void> {
+export async function selectTool(page: Page, type: 'generator' | 'extractor' | 'conveyor' | 'processor' | 'lift'): Promise<void> {
   await page.getByTestId(`tool-${type}`).click();
   await expect(page.getByTestId(`tool-${type}`)).toHaveAttribute('aria-pressed', 'true');
 }
@@ -59,6 +59,8 @@ export async function clickCell(page: Page, x: number, z: number): Promise<void>
   );
   if (!point) throw new Error(`Cell ${x},${z} is not visible on screen`);
   await page.mouse.click(point.x, point.y);
+  const confirm = page.getByTestId('tool-confirm');
+  if (await confirm.isVisible()) await confirm.click();
 }
 
 export async function waitForBuildings(page: Page, count: number): Promise<void> {

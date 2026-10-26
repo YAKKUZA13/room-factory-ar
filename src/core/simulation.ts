@@ -5,9 +5,8 @@ import {
   FIXED_DT,
   MAX_FRAME_DELTA_SECONDS,
   MAX_STEPS_PER_FRAME,
-  PART_PRICE_CREDITS,
-  PROCESSOR_CYCLE_SECONDS,
 } from './constants';
+import { hasIngredients, recipeOf } from './recipes';
 import { getEnergyStats } from './economy';
 import { sortedBuildings } from './grid';
 import { commitTransfers, planTransfers } from './logistics';
@@ -53,7 +52,7 @@ export function simulateStep(state: FactoryState, dtSeconds: number): StepResult
           building.progress += dtSeconds;
           if (building.progress + EPSILON >= EXTRACTOR_CYCLE_SECONDS) {
             building.progress = Math.max(0, building.progress - EXTRACTOR_CYCLE_SECONDS);
-            building.buffer.push('ore');
+            building.buffer.push(building.resource ?? 'ore');
             events.push({
               type: 'ore-produced',
               buildingId: building.id,
@@ -69,17 +68,23 @@ export function simulateStep(state: FactoryState, dtSeconds: number): StepResult
 
       case 'processor': {
         if (brownout) break;
-        if (building.buffer.length > 0) {
+        const recipe = recipeOf(building);
+        if (hasIngredients(building) && !(building.output?.length)) {
           building.progress += dtSeconds;
-          if (building.progress + EPSILON >= PROCESSOR_CYCLE_SECONDS) {
-            building.progress = Math.max(0, building.progress - PROCESSOR_CYCLE_SECONDS);
-            building.buffer.shift();
-            next.credits += PART_PRICE_CREDITS;
+          if (building.progress + EPSILON >= recipe.seconds) {
+            building.progress = Math.max(0, building.progress - recipe.seconds);
+            for (const item of recipe.inputs) building.buffer.splice(building.buffer.indexOf(item), 1);
+            if (recipe.output) {
+              building.output ??= [];
+              building.output.push(recipe.output);
+              break;
+            }
+            next.credits += recipe.credits ?? 0;
             next.totalPartsSold += 1;
             events.push({
               type: 'part-sold',
               buildingId: building.id,
-              credits: PART_PRICE_CREDITS,
+              credits: recipe.credits ?? 0,
               totalPartsSold: next.totalPartsSold,
               at: next.simulationTimeSeconds,
             });
@@ -90,6 +95,7 @@ export function simulateStep(state: FactoryState, dtSeconds: number): StepResult
         break;
       }
 
+      case 'lift':
       case 'conveyor': {
         if (brownout) break;
         if (building.buffer.length > 0) {

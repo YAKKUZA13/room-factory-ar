@@ -3,12 +3,14 @@
  * See SPEC.md §5.1 and §5.2.
  */
 
-export type BuildingType = 'generator' | 'extractor' | 'conveyor' | 'processor';
+export type BuildingType = 'generator' | 'extractor' | 'conveyor' | 'processor' | 'lift';
 
 /** 0 = +Z, 1 = +X, 2 = -Z, 3 = -X. */
 export type Direction = 0 | 1 | 2 | 3;
 
-export type ItemType = 'ore';
+export type ItemType = 'ore' | 'copper' | 'plate' | 'wire' | 'alloy' | 'module';
+export type RawResource = 'ore' | 'copper';
+export type RecipeId = 'parts' | 'plate' | 'wire' | 'alloy' | 'module' | 'export';
 
 export type BuildingId = string;
 
@@ -25,6 +27,12 @@ export interface Building {
   /** Integer grid coordinate, 0..9. */
   z: number;
   rotation: Direction;
+  /** Absent in older saves; the ground floor is level 0. */
+  level?: number;
+  resource?: RawResource;
+  recipe?: RecipeId;
+  output?: ItemType[];
+  liftDirection?: 'up' | 'down';
   /** Seconds accumulated in the current production operation. */
   progress: number;
   /** Capacity is enforced per building type. Only `ore` exists in the MVP. */
@@ -103,6 +111,10 @@ export interface PlaceCommand {
   x: number;
   z: number;
   rotation: Direction;
+  level?: number;
+  resource?: RawResource;
+  recipe?: RecipeId;
+  liftDirection?: 'up' | 'down';
 }
 
 export type FactoryCommand =
@@ -110,6 +122,7 @@ export type FactoryCommand =
   | { type: 'rotate'; id: BuildingId; clockwise: boolean }
   | { type: 'remove'; id: BuildingId }
   | { type: 'toggle'; id: BuildingId; enabled: boolean }
+  | { type: 'configure'; id: BuildingId; resource?: RawResource; recipe?: RecipeId; liftDirection?: 'up' | 'down' }
   | { type: 'pause'; paused: boolean }
   | { type: 'reset-factory' };
 

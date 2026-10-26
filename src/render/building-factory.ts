@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE } from '../core/constants';
+import { LEVEL_HEIGHT, PALETTE } from '../core/constants';
 import type { Building, BuildingType } from '../core/types';
 import { createConveyorVisual, type ConveyorMaterials, type ConveyorVisual } from './conveyor-renderer';
 import { createContactPatch, createLedMaterial, createSaleFlash, ledColor, type SaleFlash } from './visual-effects';
@@ -136,6 +136,17 @@ export class BuildingVisual {
     this.group.add(this.contactPatch);
 
     switch (type) {
+      case 'lift': {
+        this.group.add(box(0.85, 0.08, 0.85, materials.graphite, 0, 0.04));
+        for (const x of [-0.34, 0.34]) {
+          this.group.add(box(0.06, LEVEL_HEIGHT, 0.06, materials.metal, x, LEVEL_HEIGHT / 2, -0.32));
+          this.group.add(box(0.06, LEVEL_HEIGHT, 0.06, materials.metal, x, LEVEL_HEIGHT / 2, 0.32));
+        }
+        this.group.add(box(0.65, 0.06, 0.65, materials.teal, 0, 0.22));
+        this.group.add(box(0.06, 0.02, 0.36, materials.light, 0, 0.27, 0.1));
+        this.addLed(0.3, 0.12, 0.3);
+        break;
+      }
       case 'generator':
         this.rotor = this.buildGenerator();
         break;

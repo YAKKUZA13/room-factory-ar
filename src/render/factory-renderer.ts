@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE } from '../core/constants';
+import { LEVEL_HEIGHT, PALETTE } from '../core/constants';
 import { getEnergyStats } from '../core/economy';
 import { cellCenterLocal } from '../core/grid';
 import type { FactoryState, GridPoint, BuildingType, Direction } from '../core/types';
@@ -56,6 +56,9 @@ export class FactoryRenderer implements FactoryRendererContract {
   private cellSize = 0.1;
   private selectedId: string | null = null;
   private reducedMotion = false;
+  private activeLevel = 0;
+  private overview = false;
+  private readonly ghostArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.08, 0), 1.2, 0x202932, 0.3, 0.2);
 
   constructor() {
     this.root.name = 'factory-root';
@@ -101,6 +104,8 @@ export class FactoryRenderer implements FactoryRendererContract {
     this.ghostEdges = new THREE.LineSegments(ghostEdgesGeometry, this.ghostEdgeMaterial);
     this.ghostBox.add(this.ghostEdges);
     this.content.add(this.ghostBox);
+    this.content.add(this.ghostArrow);
+    this.ghostArrow.visible = false;
 
     // Selected building outline.
     const selectionPoints = [
@@ -243,6 +248,8 @@ export class FactoryRenderer implements FactoryRendererContract {
           visual.group.rotation.y = rotation;
         }
       }
+      visual.group.position.y = (building.level ?? 0) * LEVEL_HEIGHT;
+      visual.group.visible = this.overview || (building.level ?? 0) === this.activeLevel;
     }
 
     for (const [id, visual] of this.visuals) {
@@ -256,6 +263,16 @@ export class FactoryRenderer implements FactoryRendererContract {
     if (this.selectedId && !seen.has(this.selectedId)) {
       this.setSelectedBuilding(null);
     }
+  }
+
+  setActiveLevel(level: number, overview = false): void {
+    this.activeLevel = level;
+    this.overview = overview;
+    this.grid.group.position.y = level * LEVEL_HEIGHT;
+    this.grid.group.updateMatrixWorld(true);
+    this.setHoverCell(null);
+    this.setBuildingGhost(null, null, 0, false);
+    if (this.latestState) this.updateFactory(this.latestState);
   }
 
   updateVisuals(_alpha: number, elapsedSeconds: number): void {
@@ -329,7 +346,7 @@ export class FactoryRenderer implements FactoryRendererContract {
     viewport: DOMRect,
   ): string | null {
     if (this.visuals.size === 0) return null;
-    const groups = Array.from(this.visuals.values(), (visual) => visual.group);
+    const groups = Array.from(this.visuals.values(), (visual) => visual.group).filter(group => group.visible);
     const hits = makeRay(camera, clientX, clientY, viewport).intersectObjects(groups, true);
     for (const hit of hits) {
       let object: THREE.Object3D | null = hit.object;
@@ -350,7 +367,7 @@ export class FactoryRenderer implements FactoryRendererContract {
     viewport: DOMRect,
   ): { x: number; y: number } | null {
     const local = cellCenterLocal(x, z);
-    const point = new THREE.Vector3(local.x, 0.02, local.z);
+    const point = new THREE.Vector3(local.x, this.activeLevel * LEVEL_HEIGHT + 0.02, local.z);
     this.content.localToWorld(point);
     const projected = projectToScreen(point, camera, viewport);
     return projected.inFront ? { x: projected.x, y: projected.y } : null;
@@ -363,7 +380,7 @@ export class FactoryRenderer implements FactoryRendererContract {
       return;
     }
     const local = cellCenterLocal(cell.x, cell.z);
-    this.hoverMesh.position.set(local.x, 0.02, local.z);
+    this.hoverMesh.position.set(local.x, this.activeLevel * LEVEL_HEIGHT + 0.02, local.z);
     this.hoverMaterial.color.setHex(valid ? HOVER_COLOR : INVALID_COLOR);
     this.hoverMesh.visible = true;
   }
@@ -376,6 +393,7 @@ export class FactoryRenderer implements FactoryRendererContract {
   ): void {
     if (!type || !cell) {
       this.ghostBox.visible = false;
+      this.ghostArrow.visible = false;
       return;
     }
     const heights: Record<BuildingType, number> = {
@@ -383,10 +401,14 @@ export class FactoryRenderer implements FactoryRendererContract {
       extractor: 0.65,
       conveyor: 0.22,
       processor: 0.95,
+      lift: LEVEL_HEIGHT,
     };
     const height = heights[type];
     const local = cellCenterLocal(cell.x, cell.z);
-    this.ghostBox.position.set(local.x, height / 2, local.z);
+    this.ghostBox.position.set(local.x, this.activeLevel * LEVEL_HEIGHT + height / 2, local.z);
+    this.ghostArrow.position.set(local.x, this.activeLevel * LEVEL_HEIGHT + height + 0.1, local.z);
+    this.ghostArrow.setDirection(new THREE.Vector3(Math.sin(rotation * Math.PI / 2), 0, Math.cos(rotation * Math.PI / 2)));
+    this.ghostArrow.visible = true;
     this.ghostBox.scale.set(0.76, height, 0.76);
     this.ghostBox.rotation.y = (rotation * Math.PI) / 2;
     const color = allowed ? HOVER_COLOR : INVALID_COLOR;
@@ -406,7 +428,7 @@ export class FactoryRenderer implements FactoryRendererContract {
       this.selectionLine.visible = false;
       return;
     }
-    this.selectionLine.position.set(visual.group.position.x, 0, visual.group.position.z);
+    this.selectionLine.position.copy(visual.group.position);
     this.selectionLine.rotation.y = visual.group.rotation.y;
     this.selectionLine.visible = true;
   }
