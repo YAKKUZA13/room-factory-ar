@@ -24,7 +24,7 @@
 | 10 | State machine loss/limited/relocalization, блокировка редактирования | **PASS** | `session-machine.ts`, `handleTrackingChange`; unit + mock E2E tracking limited. |
 | 11 | Production build под subpath GitHub Pages, CI pipeline, XR/marker assets | **PASS (build), NOT DEPLOYED** | `npm run build`, `verify-dist` PASS для `/room-factory-ar/`; `.github/workflows/deploy.yml`. Реальный GitHub deployment не выполнен. |
 | 12 | Сохранены лицензии/атрибуция 8th Wall, нет чужих моделей/брендов | **PASS** | `THIRD_PARTY_NOTICES.md`, `LICENSE`, About dialog; все модели/маркер процедурные. |
-| 13 | Unit tests экономики, конвейеров, сохранения, координат, фильтра маркера | **PASS** | 83 tests / 8 files; `npm run test`. |
+| 13 | Unit tests экономики, конвейеров, сохранения, координат, фильтра маркера | **PASS** | 89 tests / 9 files; `npm run test`, включая загрузку URL маркера. |
 | 14 | Инструкция печати карточки и контрольного теста на телефоне | **PASS (doc), NOT TESTED** | `public/marker/room-factory-marker-print.html`, `README.md`, `docs/AR_TEST_PLAN.md`. |
 | 15 | Неизвестные SDK API не выданы за подтверждённые; TODO: verify on device | **PASS** | `docs/AR_TEST_PLAN.md` §7; комментарии в `eightwall-adapter.ts`/`xr-loader.ts`. |
 
@@ -54,12 +54,12 @@
 |---|---|---|
 | `npm ci` | **PASS** | clean install 56 packages, lockfile; 2 high dev-only audit warnings (sharp, no fix) |
 | `npm run typecheck` | **PASS** | `tsc --noEmit`, strict |
-| `npm run test` | **PASS** | 83 tests / 8 files |
+| `npm run test` | **PASS** | 89 tests / 9 files |
 | `npm run build` | **PASS** | typecheck + tests + vite build + copy XR + verify |
 | `scripts/verify-dist.mjs` | **PASS** | base `/room-factory-ar/`, marker companions, XR runtime |
 | Playwright desktop-chromium | **PASS** | 10 tests |
 | Playwright mobile-chromium | **PASS** | 9 tests, 1 skipped (desktop-only unsupported fallback) |
-| Playwright всего | **PASS** | 19 passed, 1 skipped, 4.5 min |
+| Playwright всего | **PASS** | 19 passed, 1 skipped |
 | Production HTTP assets под subpath | **PASS** | xr.js, xr-slam.js, marker JSON/luminance/print/icon — 200 |
 | iOS Safari device | **NOT TESTED** | нет устройства |
 | Android Chrome device | **NOT TESTED** | нет устройства |
@@ -68,6 +68,10 @@
 | GitHub Pages deployment | **NOT PERFORMED** | нет доступа к репозиторию |
 
 > Точные числа E2E в этой таблице должны соответствовать финальному полному прогону. Если после последнего прогона менялся код, запустите `npm run build` и `npx playwright test` заново.
+
+### Исправление URL маркера при запуске с телефона
+
+При первом запуске по локальному HTTPS обнаружена ошибка построения URL: относительный путь JSON использовался как абсолютная база `new URL()`. Теперь адрес JSON сначала разрешается относительно текущей страницы, затем относительно него вычисляется адрес изображения. Добавлены 6 regression-тестов, включая локальный HTTPS с production subpath. Проверка собранной страницы в мобильном Chromium с настоящим XR8 runtime и искусственной камерой подтвердила передачу полного URL изображения в SDK, HTTP 200 изображения и вызов `XR8.run()` без ошибки разбора URL. Это не подтверждает работу физической камеры, SLAM или распознавание маркера на телефоне.
 
 ## Что осталось для полного acceptance
 

@@ -103,7 +103,8 @@ function resolveImagePath(rawPath: string, metadataUrl: string): string {
     // Absolute paths are a common GitHub Pages mistake: put them under base.
     return new URL(rawPath.replace(/^\/+/, ''), new URL(APP_BASE, origin)).href;
   }
-  return new URL(rawPath, new URL('.', metadataUrl)).href;
+  const absoluteMetadataUrl = new URL(metadataUrl, window.location.href);
+  return new URL(rawPath, absoluteMetadataUrl).href;
 }
 
 export async function loadMarkerMetadata(
