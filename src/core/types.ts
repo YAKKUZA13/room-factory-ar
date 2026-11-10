@@ -119,6 +119,7 @@ export interface PlaceCommand {
 
 export type FactoryCommand =
   | PlaceCommand
+  | { type: 'move'; id: BuildingId; x: number; z: number; level?: number; rotation?: Direction }
   | { type: 'rotate'; id: BuildingId; clockwise: boolean }
   | { type: 'remove'; id: BuildingId }
   | { type: 'toggle'; id: BuildingId; enabled: boolean }

@@ -24,10 +24,11 @@ import {
   LEVEL_HEIGHT,
   MAX_LEVELS,
 } from '../core/constants';
-import { getEnergyStats } from '../core/economy';
-import { buildOccupancy, cellKey, countItems, nextDirection } from '../core/grid';
+import { getEnergyStats, placementPrice } from '../core/economy';
+import { countItems, nextDirection } from '../core/grid';
 import { createInitialFactoryState } from '../core/initial-world';
 import { createTowerDemo } from '../core/tower-demo';
+import { firstLineStep } from '../core/tutorial';
 import { cloneFactoryState } from '../core/state';
 import type {
   BuildingType,
@@ -205,6 +206,7 @@ export class AppController {
     this.inspector = new Inspector(inspectorRoot, {
       onClose: () => this.selectBuilding(null),
       onDelete: (id) => void this.requestRemove(id),
+      onMove: (id) => this.startMove(id),
       onToggle: (id, enabled) => this.dispatchCommand({ type: 'toggle', id, enabled }),
       onRotate: (id, clockwise) => this.dispatchCommand({ type: 'rotate', id, clockwise }),
       onConfigure: (command) => this.dispatchCommand(command),
@@ -251,6 +253,7 @@ export class AppController {
     void this.adapter?.stop();
     this.arInput?.dispose();
     this.factoryRenderer.dispose();
+    this.toolbar.dispose();
     this.unbindPageLifecycle?.();
   }
 
@@ -333,6 +336,12 @@ export class AppController {
   // ------------------------------------------------------------- UI wiring --
 
   private wireUi(): void {
+    document.getElementById('btn-help-game')!.addEventListener('click', () => this.screens.openDialog(this.screens.helpDialog));
+    document.getElementById('help-demo')!.addEventListener('click', () => {
+      this.screens.closeDialog(this.screens.helpDialog);
+      void this.openTowerDemo();
+    });
+    document.getElementById('btn-reset-view')!.addEventListener('click', () => this.viewer?.resetView(this.activeLevel * LEVEL_HEIGHT * this.engine.state.cellSizeMeters));
     document.getElementById('btn-demo')!.addEventListener('click', () => void this.openTowerDemo());
     document.getElementById('menu-demo')!.addEventListener('click', () => void this.openTowerDemo());
     this.screens.start3d.addEventListener('click', () => this.startDesktop());
@@ -495,6 +504,7 @@ export class AppController {
   }
 
   private handleKeydown = (event: KeyboardEvent): void => {
+    if (!this.sessionStarted || this.screens.gameUi.hidden || document.querySelector('dialog[open]')) return;
     const target = event.target as HTMLElement | null;
     if (
       target &&
@@ -507,6 +517,11 @@ export class AppController {
         this.cancelTool();
         event.preventDefault();
       }
+      return;
+    }
+    if (event.key === 'Enter' && target?.tagName !== 'BUTTON') {
+      this.confirmPlacement();
+      event.preventDefault();
       return;
     }
     if (event.key.toLowerCase() === 'r') {
@@ -579,6 +594,20 @@ export class AppController {
     this.viewer = new Desktop3DViewer(this.sceneCanvas, this.factoryRenderer, {
       onFrame: (delta, elapsed) => this.onRenderFrame(delta, elapsed),
       onTap: (x, y) => this.handleCanvasTap(x, y),
+      onDoubleTap: (x, y) => this.handleDoubleTap(x, y),
+      onBuildingGrab: (x, y) => {
+        if (this.mode !== 'desktop' || this.screens.gameUi.hidden || !this.canEdit() || this.overview || this.editTool.mode === 'delete' || this.editTool.mode === 'move') return false;
+        const id = this.factoryRenderer.pickBuilding(x, y, this.viewer!.getCamera(), this.sceneCanvas.getBoundingClientRect());
+        if (!id) return false;
+        this.startMove(id);
+        return true;
+      },
+      onBuildingDrop: (x, y) => {
+        this.handleCanvasTap(x, y);
+        if (this.pendingCell) this.confirmPlacement();
+        else this.cancelTool();
+      },
+      onBuildingCancel: () => this.cancelTool(),
       onHover: (x, y) => this.handleHover(x, y),
       onHoverEnd: () => { if (!this.pendingCell) this.clearHover(); },
     });
@@ -1256,6 +1285,12 @@ export class AppController {
     this.syncInspector(state);
     this.screens.setPaused(state.isPaused);
     this.toolbar.update(state, this.editTool, this.toolbarRotation());
+    if (this.hoverCell && (this.editTool.mode === 'place' || this.editTool.mode === 'move')) {
+      const allowed = this.placementAllowed(this.hoverCell);
+      this.factoryRenderer.setHoverCell(this.hoverCell, allowed);
+      this.factoryRenderer.setBuildingGhost(this.editTool.buildingType, this.hoverCell, this.placementRotation, allowed, this.editTool.mode === 'move' ? this.editTool.id : undefined);
+      this.toolbar.setPending(Boolean(this.pendingCell), this.editTool.mode === 'move', allowed);
+    }
   }
 
   private syncHud(state: Readonly<FactoryState>): void {
@@ -1296,15 +1331,7 @@ export class AppController {
     if (this.tutorial.complete) {
       return;
     }
-    let next = this.tutorial.step;
-    if (state.buildings.some((b) => b.type === 'generator')) next = Math.max(next, 2);
-    if (state.buildings.some((b) => b.type === 'extractor')) next = Math.max(next, 3);
-    if (
-      state.buildings.some((b) => b.type === 'processor') &&
-      state.buildings.some((b) => b.type === 'conveyor')
-    ) {
-      next = Math.max(next, 4);
-    }
+    const next = firstLineStep(state, this.sessionStarted && (this.mode === 'desktop' || this.session.canEdit()));
     if (state.totalPartsSold >= 1) {
       this.tutorial = { step: 5, complete: true };
       this.tutorialDirty = true;
@@ -1357,19 +1384,7 @@ export class AppController {
     this.editTool = { mode: 'place', buildingType: type, rotation: this.placementRotation };
     this.selectBuilding(null);
     this.clearHover();
-    this.screens.setPlacementHint(uiStrings.toolHint);
-    if (this.hoverCell) {
-      const occupied = buildOccupancy(this.engine.state.buildings).has(
-        cellKey(this.hoverCell.x, this.hoverCell.z, this.activeLevel),
-      );
-      this.factoryRenderer.setHoverCell(this.hoverCell, !occupied);
-      this.factoryRenderer.setBuildingGhost(
-        type,
-        this.hoverCell,
-        this.placementRotation,
-        !occupied,
-      );
-    }
+    this.screens.setPlacementHint(this.placementHint());
     this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
     this.diagnosticsLog.info('edit', `tool place ${type}`);
   }
@@ -1387,10 +1402,12 @@ export class AppController {
   }
 
   private cancelTool(): void {
+    const movedId = this.editTool.mode === 'move' ? this.editTool.id : null;
     this.editTool = { mode: 'inspect' };
     this.screens.setPlacementHint(null);
     this.clearHover();
     this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
+    if (movedId) this.selectBuilding(movedId);
   }
 
   private clearHover(): void {
@@ -1403,23 +1420,17 @@ export class AppController {
 
   private rotateAction(clockwise = true): void {
     if (!this.canEdit()) return;
-    if (this.editTool.mode === 'place') {
+    if (this.editTool.mode === 'place' || this.editTool.mode === 'move') {
       this.placementRotation = nextDirection(this.placementRotation, clockwise);
-      this.editTool = {
-        mode: 'place',
-        buildingType: this.editTool.buildingType,
-        rotation: this.placementRotation,
-      };
+      this.editTool = { ...this.editTool, rotation: this.placementRotation };
       this.toolbar.update(this.engine.state, this.editTool, this.toolbarRotation());
       if (this.hoverCell) {
-        const occupied = buildOccupancy(this.engine.state.buildings).has(
-          cellKey(this.hoverCell.x, this.hoverCell.z, this.activeLevel),
-        );
         this.factoryRenderer.setBuildingGhost(
           this.editTool.buildingType,
           this.hoverCell,
           this.placementRotation,
-          !occupied,
+          this.placementAllowed(this.hoverCell),
+          this.editTool.mode === 'move' ? this.editTool.id : undefined,
         );
       }
       return;
@@ -1469,25 +1480,28 @@ export class AppController {
       if (id) void this.requestRemove(id);
       return;
     }
-    if (this.editTool.mode === 'place') {
+    if (this.editTool.mode === 'place' || this.editTool.mode === 'move') {
       const selected = this.factoryRenderer.pickBuilding(clientX, clientY, camera, viewport);
-      if (selected) { this.selectBuilding(selected); return; }
+      if (selected && this.editTool.mode === 'place') { this.selectBuilding(selected); return; }
       const cell = this.factoryRenderer.pickCell(clientX, clientY, camera, viewport);
       if (!cell) {
-        this.selectBuilding(null);
+        this.clearHover();
         return;
       }
-      const occupancy = buildOccupancy(this.engine.state.buildings);
-      if (occupancy.has(cellKey(cell.x, cell.z, this.activeLevel))) {
-        this.notifications.warning(uiStrings.cellOccupied);
+      if (!this.placementAllowed(cell)) {
+        this.hoverCell = cell;
+        this.factoryRenderer.setHoverCell(cell, false);
+        this.factoryRenderer.setBuildingGhost(this.editTool.buildingType, cell, this.placementRotation, false, this.editTool.mode === 'move' ? this.editTool.id : undefined);
+        this.clearPending();
+        this.notifications.warning(this.editTool.mode === 'place' && placementPrice(this.engine.state, this.editTool.buildingType) === null ? uiStrings.notEnoughCredits : uiStrings.cellOccupied);
         return;
       }
       this.pendingCell = cell;
       this.hoverCell = cell;
       this.factoryRenderer.setHoverCell(cell, true);
-      this.factoryRenderer.setBuildingGhost(this.editTool.buildingType, cell, this.placementRotation, true);
-      this.toolbar.setPending(true);
-      this.screens.setPlacementHint('Поверните макет и нажмите «Установить»');
+      this.factoryRenderer.setBuildingGhost(this.editTool.buildingType, cell, this.placementRotation, true, this.editTool.mode === 'move' ? this.editTool.id : undefined);
+      this.toolbar.setPending(true, this.editTool.mode === 'move');
+      this.screens.setPlacementHint(this.placementHint(true));
       return;
     }
     const id = this.factoryRenderer.pickBuilding(clientX, clientY, camera, viewport);
@@ -1500,20 +1514,21 @@ export class AppController {
     const camera = this.getActiveCamera();
     if (!camera) return;
     const viewport = this.sceneCanvas.getBoundingClientRect();
-    if (this.editTool.mode === 'place') {
+    if (this.editTool.mode === 'place' || this.editTool.mode === 'move') {
       const cell = this.factoryRenderer.pickCell(clientX, clientY, camera, viewport);
       if (!cell) {
         this.clearHover();
         return;
       }
-      const occupied = buildOccupancy(this.engine.state.buildings).has(cellKey(cell.x, cell.z, this.activeLevel));
+      const allowed = this.placementAllowed(cell);
       this.hoverCell = cell;
-      this.factoryRenderer.setHoverCell(cell, !occupied);
+      this.factoryRenderer.setHoverCell(cell, allowed);
       this.factoryRenderer.setBuildingGhost(
         this.editTool.buildingType,
         cell,
         this.editTool.rotation,
-        !occupied,
+        allowed,
+        this.editTool.mode === 'move' ? this.editTool.id : undefined,
       );
       return;
     }
@@ -1536,13 +1551,59 @@ export class AppController {
   }
 
   private confirmPlacement(): void {
-    if (!this.canEdit() || this.overview || !this.pendingCell || this.editTool.mode !== 'place') return;
+    if (!this.canEdit() || this.overview || !this.pendingCell || (this.editTool.mode !== 'place' && this.editTool.mode !== 'move')) return;
     const cell = this.pendingCell;
+    if (this.editTool.mode === 'move') {
+      const id = this.editTool.id;
+      if (this.dispatchCommand({ type: 'move', id, ...cell, level: this.activeLevel, rotation: this.placementRotation })) {
+        this.cancelTool();
+        this.notifications.success('Постройка перемещена');
+      }
+      return;
+    }
     if (this.dispatchCommand({ type: 'place', buildingType: this.editTool.buildingType, x: cell.x, z: cell.z,
       rotation: this.placementRotation, level: this.activeLevel, ...this.toolbar.getConfiguration(this.editTool.buildingType) })) {
       this.clearHover();
-      this.screens.setPlacementHint('Следующий модуль: коснитесь свободной клетки');
+      this.screens.setPlacementHint(this.placementHint());
     }
+  }
+
+  private startMove(id: string): void {
+    if (!this.canEdit()) return;
+    const building = this.engine.state.buildings.find(b => b.id === id);
+    if (!building) return;
+    this.selectBuilding(null);
+    this.clearHover();
+    this.placementRotation = building.rotation;
+    this.editTool = { mode: 'move', id, buildingType: building.type, rotation: building.rotation };
+    this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+    this.screens.setPlacementHint(uiStrings.moveHint);
+  }
+
+  private clearPending(): void {
+    this.pendingCell = null;
+    this.toolbar.setPending(false);
+  }
+
+  private placementAllowed(cell: GridPoint): boolean {
+    const tool = this.editTool;
+    if (tool.mode !== 'place' && tool.mode !== 'move') return false;
+    const occupied = this.engine.state.buildings.some(b => b.x === cell.x && b.z === cell.z && (b.level ?? 0) === this.activeLevel && (tool.mode !== 'move' || b.id !== tool.id));
+    return !occupied && (tool.mode === 'move' || placementPrice(this.engine.state, tool.buildingType) !== null);
+  }
+
+  private placementHint(pending = false): string {
+    if (this.editTool.mode === 'move') return uiStrings.moveHint;
+    if (this.mode === 'desktop' && !isLikelyMobile()) return uiStrings.desktopToolHint;
+    return pending ? 'Поверните модель и нажмите «Установить»' : uiStrings.toolHint;
+  }
+
+  private handleDoubleTap(clientX: number, clientY: number): void {
+    if (this.mode !== 'desktop' || !this.pendingCell || document.querySelector('dialog[open]')) return;
+    const camera = this.getActiveCamera();
+    if (!camera) return;
+    const cell = this.factoryRenderer.pickCell(clientX, clientY, camera, this.sceneCanvas.getBoundingClientRect());
+    if (cell?.x === this.pendingCell.x && cell.z === this.pendingCell.z) this.confirmPlacement();
   }
 
   private async openTowerDemo(): Promise<void> {
@@ -1564,13 +1625,20 @@ export class AppController {
 
   private changeLevel(level: number): void {
     if (!this.canEdit()) return;
+    const moving = this.editTool.mode === 'move' ? this.editTool : null;
     this.activeLevel = Math.max(0, Math.min(MAX_LEVELS - 1, level));
     this.overview = false;
-    this.cancelTool();
+    if (moving) this.clearHover();
+    else this.cancelTool();
     this.selectBuilding(null);
     this.factoryRenderer.setActiveLevel(this.activeLevel);
     this.viewer?.focusLevel(this.activeLevel * LEVEL_HEIGHT * this.engine.state.cellSizeMeters);
     this.toolbar.setLevel(this.activeLevel, false);
+    if (moving) {
+      this.editTool = moving;
+      this.toolbar.update(this.engine.state, this.editTool, this.placementRotation);
+      this.screens.setPlacementHint(uiStrings.moveHint);
+    }
   }
 
   private toggleOverview(): void {
@@ -1589,7 +1657,7 @@ export class AppController {
   }
 
   private dispatchCommand(command: FactoryCommand): boolean {
-    if (['place', 'rotate', 'remove', 'toggle', 'configure'].includes(command.type) && !this.canEdit()) {
+    if (['place', 'move', 'rotate', 'remove', 'toggle', 'configure'].includes(command.type) && !this.canEdit()) {
       this.notifications.warning(uiStrings.arEditLocked);
       return false;
     }
@@ -1946,9 +2014,11 @@ export class AppController {
       : uiStrings.bindMarker;
     this.screens.setModeBadge(this.mode === 'mock' ? uiStrings.mockBadge : null);
     this.screens.setDesktopHintVisible(this.mode === 'desktop');
+    document.getElementById('btn-reset-view')!.hidden = this.mode === 'ar';
     this.screens.setPlacementHint(
       this.editTool.mode === 'place'
-        ? uiStrings.toolHint
+        ? this.placementHint(Boolean(this.pendingCell))
+        : this.editTool.mode === 'move' ? uiStrings.moveHint
         : this.editTool.mode === 'delete'
           ? uiStrings.deleteHint
           : null,

@@ -3,7 +3,7 @@ import { RECIPES } from '../core/recipes';
 import type { BuildingType, Direction, FactoryState, RawResource, RecipeId } from '../core/types';
 import { moduleIcon } from './icons';
 
-export type EditTool = { mode: 'inspect' } | { mode: 'place'; buildingType: BuildingType; rotation: Direction } | { mode: 'delete' };
+export type EditTool = { mode: 'inspect' } | { mode: 'place'; buildingType: BuildingType; rotation: Direction } | { mode: 'move'; id: string; buildingType: BuildingType; rotation: Direction } | { mode: 'delete' };
 export interface ToolbarCallbacks {
   onSelect(type: BuildingType): void;
   onDeleteMode(): void;
@@ -24,6 +24,7 @@ export class Toolbar {
   private readonly confirm: HTMLButtonElement;
   private readonly rotation: HTMLElement;
   private readonly floors: HTMLElement;
+  private readonly resizeObserver: ResizeObserver;
   constructor(private readonly root: HTMLElement, callbacks: ToolbarCallbacks) {
     root.innerHTML = `<div class="module-heading"><span>Модули</span><span>Выберите → разместите</span></div><div class="toolbar" role="toolbar" aria-label="Модули завода"></div>
       <div class="tool-options" hidden>
@@ -32,7 +33,7 @@ export class Toolbar {
         <label data-option="lift">Направление<select data-testid="placement-lift-direction"><option value="up">На этаж выше ↑</option><option value="down">На этаж ниже ↓</option></select></label>
       </div>
       <div class="toolbar-utils"><button class="util-btn" data-testid="tool-rotate-left" aria-label="Повернуть влево на 90 градусов">↶</button><button class="util-btn rotation-readout" data-testid="tool-rotate" aria-label="Повернуть вправо на 90 градусов"><span>Поворот</span><strong>0°</strong> ↷</button><button class="util-btn util-btn--danger" data-testid="tool-delete">Удалить</button><button class="util-btn" data-testid="tool-cancel">Отмена</button><button class="util-btn util-btn--confirm" data-testid="tool-confirm" hidden>Установить</button></div>`;
-    const labels: Record<BuildingType, string> = {generator:'Энергия',extractor:'Добыча',conveyor:'Лента',processor:'Станция',lift:'Лифт'};
+    const labels: Record<BuildingType, string> = {generator:'Генератор',extractor:'Добытчик',conveyor:'Конвейер',processor:'Станция',lift:'Подъёмник'};
     for (const type of BUILDING_TYPES) {
       const button = document.createElement('button');
       button.className = 'tool'; button.dataset.testid = `tool-${type}`;
@@ -58,6 +59,10 @@ export class Toolbar {
     this.floors.setAttribute('aria-label', 'Этаж завода');
     this.floors.innerHTML = `<span class="floor-caption">Этаж</span><button data-testid="floor-up" aria-label="Этаж выше">↑</button><output data-testid="floor-current">01</output><button data-testid="floor-down" aria-label="Этаж ниже">↓</button><button data-testid="floor-overview" aria-label="Показать все этажи" aria-pressed="false">▱</button>`;
     root.parentElement!.append(this.floors);
+    this.resizeObserver = new ResizeObserver(() => {
+      root.parentElement!.style.setProperty('--toolbar-height', `${root.getBoundingClientRect().height}px`);
+    });
+    this.resizeObserver.observe(root);
     this.floors.querySelector<HTMLButtonElement>('[data-testid="floor-up"]')!.onclick = () => { if (this.enabled) callbacks.onLevel(Math.min(MAX_LEVELS - 1, this.level + 1)); };
     this.floors.querySelector<HTMLButtonElement>('[data-testid="floor-down"]')!.onclick = () => { if (this.enabled) callbacks.onLevel(Math.max(0, this.level - 1)); };
     this.floors.querySelector<HTMLButtonElement>('[data-testid="floor-overview"]')!.onclick = () => { if (this.enabled) callbacks.onOverview(); };
@@ -68,6 +73,7 @@ export class Toolbar {
     if (type === 'lift') return {liftDirection: this.liftDirection.value as 'up' | 'down'};
     return {};
   }
+  dispose(): void { this.resizeObserver.disconnect(); }
   setLevel(level: number, overview: boolean): void {
     this.level = level;
     this.floors.querySelector('output')!.textContent = String(level + 1).padStart(2, '0');
@@ -75,7 +81,11 @@ export class Toolbar {
     this.floors.querySelector<HTMLButtonElement>('[data-testid="floor-up"]')!.disabled = !this.enabled || level === MAX_LEVELS - 1;
     this.floors.querySelector<HTMLButtonElement>('[data-testid="floor-down"]')!.disabled = !this.enabled || level === 0;
   }
-  setPending(pending: boolean): void { this.confirm.hidden = !pending; }
+  setPending(pending: boolean, moving = false, allowed = true): void {
+    this.confirm.hidden = !pending;
+    this.confirm.textContent = moving ? 'Переместить' : 'Установить';
+    this.confirm.disabled = !this.enabled || !allowed;
+  }
   update(state: FactoryState, tool: EditTool, rotation: Direction): void {
     for (const [type, button] of this.buttons) {
       const starter = state.starterInventory[type] ?? 0;

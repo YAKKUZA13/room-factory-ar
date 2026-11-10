@@ -122,6 +122,7 @@ describe('removal refunds', () => {
     const conveyor = engine.state.buildings.find((b) => b.type === 'conveyor');
     // Block the conveyor so the extractor cannot hand off its first ore.
     engine.dispatch({ type: 'rotate', id: conveyor?.id as string, clockwise: true });
+    engine.dispatch({ type: 'rotate', id: conveyor?.id as string, clockwise: true }); // Face the source; a side input now forms a valid bend.
     for (let i = 0; i < 30; i += 1) engine.step(FIXED_DT);
     const extractor = engine.state.buildings.find((b) => b.type === 'extractor');
     expect(extractor?.buffer).toHaveLength(1);

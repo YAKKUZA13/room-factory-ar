@@ -213,6 +213,8 @@ const TEMPLATE = `
       </div>
     </div>
     <div class="hud__actions">
+      <button id="btn-help-game" class="icon-btn" data-testid="help-game" aria-label="Как играть" title="Как играть">?</button>
+      <button id="btn-reset-view" class="icon-btn" data-testid="reset-view" aria-label="Вернуть камеру к заводу" title="Вернуть камеру к заводу">⌂</button>
       <button id="btn-pause" class="icon-btn" data-testid="btn-pause" aria-label="${uiStrings.pause}" title="${uiStrings.pause}">Ⅱ</button>
       <button id="btn-menu" class="icon-btn" data-testid="btn-menu" aria-label="${uiStrings.menuAria}" title="${uiStrings.menuAria}">☰</button>
     </div>
@@ -236,7 +238,7 @@ const TEMPLATE = `
   <div id="toolbar-root" class="toolbar-root"></div>
   <aside id="inspector-root" class="inspector-root" aria-live="polite"></aside>
   <div id="placement-hint" class="placement-hint" hidden></div>
-  <div class="desktop-hint">ЛКМ — вращение · колесо — масштаб · ПКМ — панорама · клик — действие</div>
+  <div class="desktop-hint">${uiStrings.desktopControlsHint}</div>
 </div>
 <div id="mode-badge" class="mode-badge" hidden></div>
 
@@ -303,6 +305,7 @@ const TEMPLATE = `
     <button id="help-close" class="icon-btn" aria-label="${uiStrings.close}">✕</button>
   </div>
   <ol class="steps steps--help" id="help-steps"></ol>
+  <button id="help-demo" class="btn" data-testid="help-demo">Открыть работающий пример «Две башни»</button>
   <p class="hint">${uiStrings.controlsHint}</p>
 </dialog>
 
@@ -614,6 +617,7 @@ export class Screens {
     this.tutorialText.textContent = complete
       ? uiStrings.tutorialDone
       : uiStrings.tutorial[Math.min(step, uiStrings.tutorial.length - 1)] ?? '';
+    this.tutorial.setAttribute('aria-label', complete ? 'Обучение завершено' : `Первая линия: шаг ${step} из 4`);
   }
 
   hideTutorial(): void {

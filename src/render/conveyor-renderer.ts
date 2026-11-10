@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { BUILDING_SPECS } from '../core/constants';
 import type { Building } from '../core/types';
+import type { ConveyorShape } from '../core/conveyor-topology';
 import { ITEM_COLORS } from '../core/recipes';
+import { beltLength, beltPoint } from './conveyor-path';
 
 export interface ConveyorMaterials {
   graphite: THREE.MeshStandardMaterial;
@@ -14,156 +16,113 @@ export interface ConveyorMaterials {
 
 export interface ConveyorVisual {
   group: THREE.Group;
+  setShape(shape: ConveyorShape): void;
   update(building: Building, elapsedSeconds: number, powered: boolean): void;
   dispose(): void;
 }
 
-const BELT_HALF = 0.34;
-
-function box(
-  width: number,
-  height: number,
-  depth: number,
-  material: THREE.Material,
-  x = 0,
-  y = 0,
-  z = 0,
-): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
-  mesh.position.set(x, y, z);
-  return mesh;
+/** Flat, thick ribbons meet the cell edges without end posts or gaps. */
+function ribbon(shape: ConveyorShape, width: number, bottom: number, top: number, lateral = 0): THREE.BufferGeometry {
+  const outline = new THREE.Shape();
+  const segments = shape === 'straight' ? 1 : 24;
+  for (let i = 0; i <= segments; i++) {
+    const point = beltPoint(shape, i / segments, lateral - width / 2);
+    if (i === 0) outline.moveTo(point.x, point.z);
+    else outline.lineTo(point.x, point.z);
+  }
+  for (let i = segments; i >= 0; i--) {
+    const point = beltPoint(shape, i / segments, lateral + width / 2);
+    outline.lineTo(point.x, point.z);
+  }
+  outline.closePath();
+  const geometry = new THREE.ExtrudeGeometry(outline, { depth: top - bottom, bevelEnabled: false, steps: 1 });
+  geometry.rotateX(Math.PI / 2);
+  geometry.translate(0, top, 0);
+  return geometry;
 }
 
-function cylinder(
-  radiusTop: number,
-  radiusBottom: number,
-  height: number,
-  segments: number,
-  material: THREE.Material,
-  x = 0,
-  y = 0,
-  z = 0,
-): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments),
-    material,
-  );
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-/**
- * Builds one conveyor in cell-local units. The conveyor's forward direction is
- * local +Z; the building visual rotation handles the world direction.
- */
 export function createConveyorVisual(materials: ConveyorMaterials): ConveyorVisual {
   const group = new THREE.Group();
-  const owned: Array<THREE.Material | THREE.BufferGeometry> = [];
-
-  const base = box(0.9, 0.06, 0.9, materials.graphite, 0, 0.03, 0);
-  group.add(base);
-
-  const belt = box(0.58, 0.025, 0.78, materials.belt, 0, 0.125, 0);
-  group.add(belt);
-
-  const railLeft = box(0.1, 0.06, 0.9, materials.amber, -0.42, 0.1, 0);
-  const railRight = box(0.1, 0.06, 0.9, materials.amber, 0.42, 0.1, 0);
-  group.add(railLeft, railRight);
-
-  const inputFrame = box(0.52, 0.3, 0.05, materials.graphite, 0, 0.2, -0.44);
-  const outputFrame = box(0.52, 0.3, 0.05, materials.graphite, 0, 0.2, 0.44);
-  group.add(inputFrame, outputFrame);
-
-  const inputLip = box(0.4, 0.06, 0.06, materials.teal, 0, 0.34, -0.44);
-  const outputLip = box(0.4, 0.06, 0.06, materials.teal, 0, 0.34, 0.44);
-  group.add(inputLip, outputLip);
-
-  const rollerPivots: THREE.Object3D[] = [];
-  const rollerCount = 5;
-  for (let i = 0; i < rollerCount; i += 1) {
-    const z = -BELT_HALF + (i / (rollerCount - 1)) * BELT_HALF * 2;
-    const pivot = new THREE.Object3D();
-    pivot.position.set(0, 0.15, z);
-    const roller = cylinder(0.055, 0.055, 0.62, 10, materials.metal);
-    roller.rotation.z = Math.PI / 2;
-    pivot.add(roller);
-    group.add(pivot);
-    rollerPivots.push(pivot);
-  }
-
-  const ribs: THREE.Mesh[] = [];
-  const ribCount = 5;
-  for (let i = 0; i < ribCount; i += 1) {
-    const rib = box(0.54, 0.012, 0.035, materials.graphite, 0, 0.145, 0);
+  group.name = 'conveyor-belt';
+  const structure = new THREE.Group();
+  group.add(structure);
+  const ribGeometry = new THREE.BoxGeometry(0.68, 0.012, 0.025);
+  const ribs = Array.from({ length: 8 }, (_, index) => {
+    const rib = new THREE.Mesh(ribGeometry, materials.metal);
+    rib.name = `belt-tread-${index}`;
     group.add(rib);
-    ribs.push(rib);
-  }
-
-  // Direction arrow: shaft + triangular head pointing local +Z.
-  const arrowMaterial = materials.teal;
-  const shaft = box(0.07, 0.015, 0.22, arrowMaterial, 0, 0.2, 0.04);
-  const headGeometry = new THREE.ConeGeometry(0.11, 0.18, 3);
-  const head = new THREE.Mesh(headGeometry, arrowMaterial);
-  head.rotation.x = Math.PI / 2;
-  head.position.set(0, 0.2, 0.24);
-  group.add(shaft, head);
-  owned.push(headGeometry);
-
-  // Item mesh: dark ore crystal. One per conveyor, driven by the logical buffer.
-  const itemGeometry = new THREE.DodecahedronGeometry(0.07, 0);
-  const itemMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2d3436,
-    roughness: 0.5,
-    metalness: 0.45,
-    emissive: 0x0b2a2e,
-    emissiveIntensity: 0.6,
+    return rib;
   });
-  owned.push(itemGeometry, itemMaterial);
+  const itemGeometry = new THREE.DodecahedronGeometry(0.07, 0);
+  const itemMaterial = new THREE.MeshStandardMaterial({ color: 0x2d3436, roughness: 0.5, metalness: 0.45 });
   const item = new THREE.Mesh(itemGeometry, itemMaterial);
+  item.name = 'belt-cargo';
   item.rotation.set(0.4, 0.2, 0.1);
   item.visible = false;
   group.add(item);
+  let shape: ConveyorShape | null = null;
+  let phaseDistance = 0;
+  let lastElapsed: number | null = null;
 
-  let phase = 0;
-  let lastElapsed = 0;
+  function positionRibs(): void {
+    const count = shape === 'straight' ? 8 : 6;
+    for (let i = 0; i < ribs.length; i++) {
+      const rib = ribs[i]!;
+      rib.visible = i < count;
+      if (!rib.visible) continue;
+      const t = (i / count + phaseDistance / beltLength(shape!)) % 1;
+      const point = beltPoint(shape!, t);
+      rib.position.set(point.x, 0.119, point.z);
+      rib.rotation.y = Math.atan2(point.dx, point.dz);
+    }
+  }
+
+  function setShape(nextShape: ConveyorShape): void {
+    if (shape === nextShape) return;
+    shape = nextShape;
+    for (const child of structure.children) (child as THREE.Mesh).geometry.dispose();
+    structure.clear();
+    const parts = [
+      ['belt-base', 0.88, 0.015, 0.065, 0, materials.graphite],
+      ['belt-surface', 0.70, 0.065, 0.11, 0, materials.belt],
+      ['belt-rail-left', 0.07, 0.06, 0.14, -0.385, materials.amber],
+      ['belt-rail-right', 0.07, 0.06, 0.14, 0.385, materials.amber],
+    ] as const;
+    for (const [name, width, bottom, top, lateral, material] of parts) {
+      const mesh = new THREE.Mesh(ribbon(shape, width, bottom, top, lateral), material);
+      mesh.name = name;
+      structure.add(mesh);
+    }
+    group.userData.shape = shape;
+    positionRibs();
+  }
+  setShape('straight');
 
   return {
-    group,
+    group, setShape,
     update(building: Building, elapsedSeconds: number, powered: boolean) {
-      const dt = Math.max(0, Math.min(0.1, elapsedSeconds - lastElapsed));
+      const dt = lastElapsed === null ? 0 : Math.max(0, Math.min(0.1, elapsedSeconds - lastElapsed));
       lastElapsed = elapsedSeconds;
-      if (powered) phase = (phase + dt * 1.5) % 1;
-
-      for (let i = 0; i < rollerPivots.length; i += 1) {
-        const pivot = rollerPivots[i];
-        if (pivot) pivot.rotation.x = phase * Math.PI * 4 + i * 0.4;
+      if (powered) {
+        const spacing = beltLength(shape!) / (shape === 'straight' ? 8 : 6);
+        phaseDistance = (phaseDistance + dt * 0.5) % spacing;
       }
-      for (let i = 0; i < ribs.length; i += 1) {
-        const rib = ribs[i];
-        if (!rib) continue;
-        const offset = (i / ribs.length + phase) % 1;
-        rib.position.z = -BELT_HALF + offset * BELT_HALF * 2;
-      }
-
-      const hasItem = building.buffer.length > 0;
-      item.visible = hasItem;
-      if (hasItem) {
+      positionRibs();
+      item.visible = building.buffer.length > 0;
+      if (item.visible) {
         itemMaterial.color.set(ITEM_COLORS[building.buffer[0]!]);
-        const t = Math.max(
-          0,
-          Math.min(1, building.progress / BUILDING_SPECS.conveyor.cycleSeconds),
-        );
-        item.position.set(0, 0.2, -BELT_HALF + t * BELT_HALF * 2);
-        item.rotation.y = elapsedSeconds * 0.8;
+        const t = Math.max(0, Math.min(1, building.progress / BUILDING_SPECS.conveyor.cycleSeconds));
+        const point = beltPoint(shape!, t);
+        item.position.set(point.x, 0.20, point.z);
+        item.rotation.y = Math.atan2(point.dx, point.dz) + 0.2;
       }
     },
     dispose() {
-      group.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-        }
-      });
-      for (const resource of owned) resource.dispose();
+      for (const child of structure.children) (child as THREE.Mesh).geometry.dispose();
+      ribGeometry.dispose();
+      itemGeometry.dispose();
+      itemMaterial.dispose();
+      structure.clear();
       group.clear();
     },
   };

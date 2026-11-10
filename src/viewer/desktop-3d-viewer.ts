@@ -13,6 +13,10 @@ export interface ViewerStats {
 export interface ViewerCallbacks {
   onFrame(deltaSeconds: number, elapsedSeconds: number): void;
   onTap(clientX: number, clientY: number): void;
+  onDoubleTap(clientX: number, clientY: number): void;
+  onBuildingGrab(clientX: number, clientY: number): boolean;
+  onBuildingDrop(clientX: number, clientY: number): void;
+  onBuildingCancel(): void;
   onHover(clientX: number, clientY: number): void;
   onHoverEnd(): void;
 }
@@ -47,7 +51,9 @@ export class Desktop3DViewer {
   private drawCalls = 0;
   private triangles = 0;
 
-  private pointerDown: { id: number; x: number; y: number; time: number } | null = null;
+  private pointerDown: { id: number; x: number; y: number; time: number; moved: boolean } | null = null;
+  private readonly activePointers = new Set<number>();
+  private grabbedBuilding = false;
   private lastHover = 0;
 
   constructor(
@@ -83,7 +89,8 @@ export class Desktop3DViewer {
     this.controls.minDistance = 0.45;
     this.controls.maxDistance = 5;
     this.controls.maxPolarAngle = Math.PI * 0.49;
-    this.controls.screenSpacePanning = false;
+    this.controls.screenSpacePanning = true;
+    this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
     this.controls.addEventListener('start', () => {
       this.userInteracted = true;
     });
@@ -93,11 +100,14 @@ export class Desktop3DViewer {
     this.factoryRenderer.attach(this.scene);
 
     this.canvas.style.touchAction = 'none';
-    this.canvas.addEventListener('pointerdown', this.handlePointerDown);
+    this.canvas.tabIndex = 0;
+    this.canvas.setAttribute('aria-label', '3D-сцена завода');
+    this.canvas.addEventListener('pointerdown', this.handlePointerDown, true);
     this.canvas.addEventListener('pointerup', this.handlePointerUp);
     this.canvas.addEventListener('pointercancel', this.handlePointerCancel);
     this.canvas.addEventListener('pointermove', this.handlePointerMove);
     this.canvas.addEventListener('pointerleave', this.handlePointerLeave);
+    this.canvas.addEventListener('dblclick', this.handleDoubleClick);
     this.canvas.addEventListener('contextmenu', this.handleContextMenu);
     this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
     this.canvas.addEventListener('webglcontextrestored', this.handleContextRestored);
@@ -117,11 +127,26 @@ export class Desktop3DViewer {
   }
 
   focusLevel(heightMeters: number): void {
+    this.flushControlMotion();
     const offset = this.camera.position.clone().sub(this.controls.target);
     this.target.y = heightMeters + 0.14;
     this.controls.target.copy(this.target);
     this.camera.position.copy(this.target).add(offset);
     this.controls.update();
+  }
+
+  resetView(heightMeters: number): void {
+    this.flushControlMotion();
+    this.target.set(0, heightMeters + 0.14, 0);
+    this.frameFactory();
+  }
+
+  private flushControlMotion(): void {
+    // Consume pending damping before assigning a new camera pose, so it cannot drift afterwards.
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = damping;
   }
 
   stop(): void {
@@ -170,11 +195,12 @@ export class Desktop3DViewer {
   dispose(): void {
     this.stop();
     this.resizeObserver.disconnect();
-    this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
+    this.canvas.removeEventListener('pointerdown', this.handlePointerDown, true);
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
     this.canvas.removeEventListener('pointercancel', this.handlePointerCancel);
     this.canvas.removeEventListener('pointermove', this.handlePointerMove);
     this.canvas.removeEventListener('pointerleave', this.handlePointerLeave);
+    this.canvas.removeEventListener('dblclick', this.handleDoubleClick);
     this.canvas.removeEventListener('contextmenu', this.handleContextMenu);
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
@@ -254,31 +280,63 @@ export class Desktop3DViewer {
   }
 
   private handlePointerDown = (event: PointerEvent): void => {
+    this.canvas.focus({ preventScroll: true });
+    this.activePointers.add(event.pointerId);
+    if (this.activePointers.size > 1) { this.pointerDown = null; return; }
     if (event.button !== 0) return;
     this.pointerDown = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       time: performance.now(),
+      moved: false,
     };
+    if (event.pointerType === 'mouse' && this.controls.enabled && this.callbacks.onBuildingGrab(event.clientX, event.clientY)) {
+      this.flushControlMotion();
+      this.grabbedBuilding = true;
+      this.controls.enabled = false;
+      this.canvas.setPointerCapture(event.pointerId);
+    }
   };
 
   private handlePointerUp = (event: PointerEvent): void => {
+    this.activePointers.delete(event.pointerId);
     const start = this.pointerDown;
     this.pointerDown = null;
     if (!start || start.id !== event.pointerId) return;
+    if (this.grabbedBuilding) {
+      this.grabbedBuilding = false;
+      this.controls.enabled = true;
+      if (start.moved) {
+        this.callbacks.onBuildingDrop(event.clientX, event.clientY);
+        return;
+      }
+      this.callbacks.onBuildingCancel();
+    }
     const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
     const duration = performance.now() - start.time;
-    if (distance < 6 && duration < 700) {
+    if (!start.moved && distance < 6 && duration < 700) {
       this.callbacks.onTap(event.clientX, event.clientY);
     }
   };
 
-  private handlePointerCancel = (): void => {
+  private handlePointerCancel = (event: PointerEvent): void => {
+    this.activePointers.delete(event.pointerId);
     this.pointerDown = null;
+    if (this.grabbedBuilding) {
+      this.grabbedBuilding = false;
+      this.controls.enabled = true;
+      this.callbacks.onBuildingCancel();
+    }
   };
 
   private handlePointerMove = (event: PointerEvent): void => {
+    if (this.pointerDown && Math.hypot(event.clientX - this.pointerDown.x, event.clientY - this.pointerDown.y) >= 6) this.pointerDown.moved = true;
+    if (this.grabbedBuilding && this.pointerDown?.moved) {
+      this.callbacks.onHover(event.clientX, event.clientY);
+      return;
+    }
+    if (event.buttons || this.activePointers.size) return;
     if (this.pointerDown) return;
     const now = performance.now();
     if (now - this.lastHover < 45) return;
@@ -288,6 +346,10 @@ export class Desktop3DViewer {
 
   private handlePointerLeave = (): void => {
     this.callbacks.onHoverEnd();
+  };
+
+  private handleDoubleClick = (event: MouseEvent): void => {
+    if (event.button === 0) this.callbacks.onDoubleTap(event.clientX, event.clientY);
   };
 
   private handleContextMenu = (event: Event): void => {

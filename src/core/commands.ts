@@ -49,6 +49,25 @@ export function applyCommand(
   switch (command.type) {
     case 'place':
       return placeBuilding(state, command);
+    case 'move': {
+      const building = state.buildings.find(b => b.id === command.id);
+      if (!building) return fail('building-not-found', 'Здание не найдено.');
+      const level = command.level ?? building.level ?? 0;
+      if (!isInsideGrid(command.x, command.z) || !Number.isInteger(level) || level < 0 || level >= MAX_LEVELS) {
+        return fail('out-of-bounds', 'Выберите клетку на доступном этаже.');
+      }
+      if (command.rotation !== undefined && !isDirection(command.rotation)) return fail('invalid-rotation', 'Поворот должен быть кратен 90°.');
+      if (state.buildings.some(b => b.id !== command.id && b.x === command.x && b.z === command.z && (b.level ?? 0) === level)) {
+        return fail('occupied', 'Клетка уже занята.');
+      }
+      const next = cloneFactoryState(state);
+      const target = next.buildings.find(b => b.id === command.id)!;
+      target.x = command.x;
+      target.z = command.z;
+      target.level = level;
+      target.rotation = command.rotation ?? building.rotation;
+      return ok(next);
+    }
     case 'rotate':
       return rotateBuilding(state, command.id, command.clockwise);
     case 'remove':

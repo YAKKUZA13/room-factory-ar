@@ -8,6 +8,9 @@ test('preview, both rotation directions, tap-to-select, floors and save restore'
   expect(point).not.toBeNull();
   if(isMobile)await page.touchscreen.tap(point!.x,point!.y);else await page.mouse.click(point!.x,point!.y);
   await expect(page.getByTestId('tool-confirm')).toBeVisible();
+  const hint = await page.locator('#placement-hint').boundingBox();
+  const toolbar = await page.locator('#toolbar-root').boundingBox();
+  expect(hint!.y + hint!.height).toBeLessThanOrEqual(toolbar!.y);
   expect((await debugState(page)).buildings).toHaveLength(0);
   await page.getByTestId('tool-rotate-left').click();
   await expect(page.getByTestId('tool-rotate')).toContainText('270°');

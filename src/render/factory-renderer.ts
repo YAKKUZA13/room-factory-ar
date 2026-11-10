@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { LEVEL_HEIGHT, PALETTE } from '../core/constants';
 import { getEnergyStats } from '../core/economy';
-import { cellCenterLocal } from '../core/grid';
+import { buildOccupancy, cellCenterLocal } from '../core/grid';
+import { conveyorShape } from '../core/conveyor-topology';
 import type { FactoryState, GridPoint, BuildingType, Direction } from '../core/types';
 import type { RigidPose } from '../ar/tracking-port';
 import { applyPoseToObject } from '../ar/transforms';
@@ -38,10 +39,9 @@ export class FactoryRenderer implements FactoryRendererContract {
   private readonly previewOutline: THREE.LineSegments;
   private readonly hoverMesh: THREE.Mesh;
   private readonly hoverMaterial: THREE.MeshBasicMaterial;
-  private readonly ghostBox: THREE.Mesh;
-  private readonly ghostEdges: THREE.LineSegments;
-  private readonly ghostMaterial: THREE.MeshBasicMaterial;
-  private readonly ghostEdgeMaterial: THREE.LineBasicMaterial;
+  private ghostVisual: BuildingVisual | null = null;
+  private readonly ghostMaterials = createVisualMaterials();
+  private readonly ghostColors = new Map<THREE.Material, THREE.Color>();
   private readonly selectionLine: THREE.Line;
   private readonly markerDebug = new THREE.Group();
   private readonly markerDebugMaterials: THREE.Material[] = [];
@@ -85,25 +85,6 @@ export class FactoryRenderer implements FactoryRendererContract {
     this.hoverMesh.visible = false;
     this.content.add(this.hoverMesh);
 
-    const ghostGeometry = new THREE.BoxGeometry(1, 1, 1);
-    this.ghostMaterial = new THREE.MeshBasicMaterial({
-      color: HOVER_COLOR,
-      transparent: true,
-      opacity: 0.26,
-      depthWrite: false,
-    });
-    this.ghostBox = new THREE.Mesh(ghostGeometry, this.ghostMaterial);
-    this.ghostBox.visible = false;
-    this.ghostBox.name = 'building-placement-ghost';
-    const ghostEdgesGeometry = new THREE.EdgesGeometry(ghostGeometry);
-    this.ghostEdgeMaterial = new THREE.LineBasicMaterial({
-      color: HOVER_COLOR,
-      transparent: true,
-      opacity: 0.9,
-    });
-    this.ghostEdges = new THREE.LineSegments(ghostEdgesGeometry, this.ghostEdgeMaterial);
-    this.ghostBox.add(this.ghostEdges);
-    this.content.add(this.ghostBox);
     this.content.add(this.ghostArrow);
     this.ghostArrow.visible = false;
 
@@ -225,6 +206,7 @@ export class FactoryRenderer implements FactoryRendererContract {
     this.brownout = getEnergyStats(state).brownout;
 
     const seen = new Set<string>();
+    const occupancy = buildOccupancy(state.buildings);
     for (const building of state.buildings) {
       seen.add(building.id);
       let visual = this.visuals.get(building.id);
@@ -249,6 +231,7 @@ export class FactoryRenderer implements FactoryRendererContract {
         }
       }
       visual.group.position.y = (building.level ?? 0) * LEVEL_HEIGHT;
+      if (building.type === 'conveyor') visual.setConveyorShape(conveyorShape(building, occupancy));
       visual.group.visible = this.overview || (building.level ?? 0) === this.activeLevel;
     }
 
@@ -280,7 +263,7 @@ export class FactoryRenderer implements FactoryRendererContract {
     if (!state) return;
     for (const building of state.buildings) {
       const visual = this.visuals.get(building.id);
-      visual?.update(building, elapsedSeconds, this.brownout, this.reducedMotion);
+      visual?.update(building, elapsedSeconds, this.brownout, this.reducedMotion, state.isPaused);
     }
   }
 
@@ -376,7 +359,6 @@ export class FactoryRenderer implements FactoryRendererContract {
   setHoverCell(cell: GridPoint | null, valid = true): void {
     if (!cell) {
       this.hoverMesh.visible = false;
-      this.ghostBox.visible = false;
       return;
     }
     const local = cellCenterLocal(cell.x, cell.z);
@@ -390,11 +372,35 @@ export class FactoryRenderer implements FactoryRendererContract {
     cell: GridPoint | null,
     rotation: Direction,
     allowed: boolean,
+    movingId?: string,
   ): void {
     if (!type || !cell) {
-      this.ghostBox.visible = false;
+      if (this.ghostVisual) this.ghostVisual.group.visible = false;
       this.ghostArrow.visible = false;
       return;
+    }
+    if (this.ghostVisual?.type !== type) {
+      if (this.ghostVisual) {
+        this.content.remove(this.ghostVisual.group);
+        this.ghostVisual.dispose();
+      }
+      // Independent materials keep preview opacity and invalid tint off real buildings.
+      for (const [material, color] of this.ghostColors) {
+        if ('color' in material) (material.color as THREE.Color).copy(color);
+      }
+      this.ghostColors.clear();
+      this.ghostVisual = new BuildingVisual(type, this.ghostMaterials);
+      this.ghostVisual.group.name = 'building-placement-ghost';
+      this.ghostVisual.group.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+          material.transparent = true;
+          material.opacity = Math.min(material.opacity, 0.65);
+          material.depthWrite = false;
+          if ('color' in material) this.ghostColors.set(material, (material.color as THREE.Color).clone());
+        }
+      });
+      this.content.add(this.ghostVisual.group);
     }
     const heights: Record<BuildingType, number> = {
       generator: 0.55,
@@ -405,16 +411,26 @@ export class FactoryRenderer implements FactoryRendererContract {
     };
     const height = heights[type];
     const local = cellCenterLocal(cell.x, cell.z);
-    this.ghostBox.position.set(local.x, this.activeLevel * LEVEL_HEIGHT + height / 2, local.z);
+    this.ghostVisual.group.position.set(local.x, this.activeLevel * LEVEL_HEIGHT, local.z);
     this.ghostArrow.position.set(local.x, this.activeLevel * LEVEL_HEIGHT + height + 0.1, local.z);
     this.ghostArrow.setDirection(new THREE.Vector3(Math.sin(rotation * Math.PI / 2), 0, Math.cos(rotation * Math.PI / 2)));
     this.ghostArrow.visible = true;
-    this.ghostBox.scale.set(0.76, height, 0.76);
-    this.ghostBox.rotation.y = (rotation * Math.PI) / 2;
+    this.ghostVisual.group.rotation.y = (rotation * Math.PI) / 2;
+    if (type === 'conveyor' && this.latestState) {
+      const occupancy = buildOccupancy(this.latestState.buildings.filter(building => building.id !== movingId));
+      const preview = { id: 'preview', type, ...cell, level: this.activeLevel, rotation, enabled: true, buffer: [], progress: 0, purchaseSource: 'starter' as const };
+      occupancy.set(`${cell.x}:${cell.z}:${this.activeLevel}`, preview);
+      this.ghostVisual.setConveyorShape(conveyorShape(preview, occupancy));
+    }
     const color = allowed ? HOVER_COLOR : INVALID_COLOR;
-    this.ghostMaterial.color.setHex(color);
-    this.ghostEdgeMaterial.color.setHex(color);
-    this.ghostBox.visible = true;
+    for (const [material, original] of this.ghostColors) {
+      const materialColor = (material as THREE.MeshBasicMaterial).color;
+      materialColor.copy(allowed ? original : new THREE.Color(INVALID_COLOR));
+    }
+    this.ghostArrow.setColor(color);
+    this.ghostVisual.group.visible = true;
+    this.ghostVisual.group.userData.allowed = allowed;
+    this.ghostVisual.group.userData.buildingType = type;
   }
 
   setSelectedBuilding(id: string | null): void {
@@ -457,10 +473,13 @@ export class FactoryRenderer implements FactoryRendererContract {
     disposeVisualMaterials(this.materials);
     this.hoverMesh.geometry.dispose();
     this.hoverMaterial.dispose();
-    this.ghostBox.geometry.dispose();
-    this.ghostEdges.geometry.dispose();
-    this.ghostMaterial.dispose();
-    this.ghostEdgeMaterial.dispose();
+    this.ghostVisual?.dispose();
+    disposeVisualMaterials(this.ghostMaterials);
+    this.ghostColors.clear();
+    for (const object of [this.ghostArrow.line, this.ghostArrow.cone]) {
+      object.geometry.dispose();
+      (object.material as THREE.Material).dispose();
+    }
     for (const geometry of this.markerDebugGeometries) geometry.dispose();
     for (const material of this.markerDebugMaterials) material.dispose();
     this.selectionLine.geometry.dispose();

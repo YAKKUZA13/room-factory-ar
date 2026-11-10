@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LEVEL_HEIGHT, PALETTE } from '../core/constants';
 import type { Building, BuildingType } from '../core/types';
+import type { ConveyorShape } from '../core/conveyor-topology';
 import { createConveyorVisual, type ConveyorMaterials, type ConveyorVisual } from './conveyor-renderer';
 import { createContactPatch, createLedMaterial, createSaleFlash, ledColor, type SaleFlash } from './visual-effects';
 
@@ -133,6 +134,7 @@ export class BuildingVisual {
     this.materials = materials;
     this.group.name = `building-${type}`;
     this.contactPatch = createContactPatch(type === 'processor' ? 0.82 : 0.88);
+    this.contactPatch.visible = type !== 'conveyor';
     this.group.add(this.contactPatch);
 
     switch (type) {
@@ -166,14 +168,18 @@ export class BuildingVisual {
     }
   }
 
-  update(building: Building, elapsedSeconds: number, brownout: boolean, reducedMotion = false): void {
+  setConveyorShape(shape: ConveyorShape): void {
+    this.conveyor?.setShape(shape);
+  }
+
+  update(building: Building, elapsedSeconds: number, brownout: boolean, reducedMotion = false, paused = false): void {
     const dt = Math.max(0, Math.min(0.1, elapsedSeconds - this.lastElapsed));
     this.lastElapsed = elapsedSeconds;
     const motionElapsed = reducedMotion ? 0 : elapsedSeconds;
     const powered = building.enabled && !brownout;
     const age = Math.max(0, elapsedSeconds - this.spawnAtSeconds);
     const spawnT = Math.min(1, age / 0.28);
-    const spawnScale = reducedMotion ? 1 : 0.9 + 0.1 * (1 - (1 - spawnT) * (1 - spawnT));
+    const spawnScale = reducedMotion || building.type === 'conveyor' ? 1 : 0.9 + 0.1 * (1 - (1 - spawnT) * (1 - spawnT));
     if (Math.abs(this.group.scale.x - spawnScale) > 1e-4) {
       this.group.scale.setScalar(spawnScale);
     }
@@ -209,7 +215,7 @@ export class BuildingVisual {
         }
         break;
       case 'conveyor':
-        this.conveyor?.update(building, motionElapsed, powered);
+        this.conveyor?.update(building, motionElapsed, powered && !paused);
         break;
     }
   }

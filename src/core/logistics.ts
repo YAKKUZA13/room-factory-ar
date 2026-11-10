@@ -1,5 +1,6 @@
 import { CONVEYOR_MOVE_SECONDS } from './constants';
-import { buildOccupancy, cellKey, forwardCell, rearCell, sortedBuildings } from './grid';
+import { buildOccupancy, cellKey, forwardCell, sortedBuildings } from './grid';
+import { conveyorAcceptsFrom, type Occupancy } from './conveyor-topology';
 import { acceptsItem } from './recipes';
 import type {
   Building,
@@ -20,7 +21,7 @@ export interface TransferIntent {
   targetZ: number;
 }
 
-function targetAccepts(source: Building, target: Building, item: ItemType): boolean {
+function targetAccepts(source: Building, target: Building, item: ItemType, occupancy: Occupancy): boolean {
   if (!target.enabled) return false;
   if (!acceptsItem(target, item)) return false;
   if (target.type === 'lift') return true;
@@ -29,9 +30,7 @@ function targetAccepts(source: Building, target: Building, item: ItemType): bool
     return true;
   }
   if (target.type === 'conveyor') {
-    // Conveyors accept only from behind.
-    const rear = rearCell(target);
-    return rear.x === source.x && rear.z === source.z;
+    return conveyorAcceptsFrom(source, target, occupancy);
   }
   return false;
 }
@@ -64,11 +63,11 @@ export function planTransfers(
     const targetCell = forwardCell(source);
     const level = source.level ?? 0;
     let target = occupancy.get(cellKey(targetCell.x, targetCell.z, level));
-    if (!target || !targetAccepts(source, target, item)) {
+    if (!target || !targetAccepts(source, target, item, occupancy)) {
       if (source.type !== 'lift') continue;
       const otherLevel = level + (source.liftDirection === 'down' ? -1 : 1);
       target = occupancy.get(cellKey(source.x, source.z, otherLevel));
-      if (!target || target.type !== 'lift' || !targetAccepts(source, target, item)) continue;
+      if (!target || target.type !== 'lift' || !targetAccepts(source, target, item, occupancy)) continue;
     }
 
     intents.push({

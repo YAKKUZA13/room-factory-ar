@@ -6,6 +6,7 @@ import { uiStrings } from './strings';
 export interface InspectorCallbacks {
   onClose(): void;
   onDelete(id: string): void;
+  onMove(id: string): void;
   onToggle(id: string, enabled: boolean): void;
   onRotate(id: string, clockwise: boolean): void;
   onConfigure(command: Extract<FactoryCommand, {type: 'configure'}>): void;
@@ -115,7 +116,12 @@ export class Inspector {
           {liftDirection:this.configureSelect.value as 'up'|'down'})});
     };
     this.configureRow.append(this.configureSelect);
-    actions.append(rotateLeft, rotateRight, this.toggleButton, this.deleteButton);
+    const move = document.createElement('button');
+    move.className = 'btn btn--small inspector__move';
+    move.dataset.testid = 'inspector-move';
+    move.textContent = 'Переместить';
+    move.onclick = () => { if (this.currentId) callbacks.onMove(this.currentId); };
+    actions.append(move, rotateLeft, rotateRight, this.toggleButton, this.deleteButton);
 
     card.append(head, this.configureRow, statusRow, directionRow, bufferRow, progress, actions);
     root.appendChild(card);
@@ -165,7 +171,8 @@ export class Inspector {
       this.directionEl.textContent = 'общая энергосеть';
     }
 
-    this.directionEl.textContent = `${building.rotation * 90}° · ${['↑','→','↓','←'][building.rotation]}${building.type === 'lift' ? (building.liftDirection === 'down' ? ' · вниз' : ' · вверх') : ' · выход'}`;
+    if (building.type === 'lift') this.directionEl.textContent = `${building.rotation * 90}° · выход; ${building.liftDirection === 'down' ? 'вниз' : 'вверх'} при отсутствии выхода`;
+    else if (building.type !== 'generator') this.directionEl.textContent = `${building.rotation * 90}° · выход${building.type === 'conveyor' ? ', вход автоматически' : building.type === 'processor' ? ', вход с любой стороны' : ''}`;
     const capacity = building.type === 'processor' ? recipeOf(building).inputs.length : spec.bufferCapacity;
     this.bufferEl.textContent =
       capacity === 0 ? '—' : `${building.buffer.map(item => ITEM_LABELS[item]).join(', ') || 'Пусто'} · ${building.buffer.length}/${capacity}${building.output?.length ? ' → ' + building.output.map(item => ITEM_LABELS[item]).join(', ') : ''}`;
