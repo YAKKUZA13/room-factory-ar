@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BUILDING_SPECS } from '../core/constants';
 import type { Building } from '../core/types';
 import type { ConveyorShape } from '../core/conveyor-topology';
-import { ITEM_COLORS } from '../core/recipes';
+import { CargoDisplay, type CargoModels } from './cargo-models';
 import { beltLength, beltPoint } from './conveyor-path';
 
 export interface ConveyorMaterials {
@@ -12,6 +12,7 @@ export interface ConveyorMaterials {
   amber: THREE.MeshStandardMaterial;
   light: THREE.MeshStandardMaterial;
   belt: THREE.MeshStandardMaterial;
+  cargoModels: CargoModels;
 }
 
 export interface ConveyorVisual {
@@ -53,13 +54,9 @@ export function createConveyorVisual(materials: ConveyorMaterials): ConveyorVisu
     group.add(rib);
     return rib;
   });
-  const itemGeometry = new THREE.DodecahedronGeometry(0.07, 0);
-  const itemMaterial = new THREE.MeshStandardMaterial({ color: 0x2d3436, roughness: 0.5, metalness: 0.45 });
-  const item = new THREE.Mesh(itemGeometry, itemMaterial);
-  item.name = 'belt-cargo';
-  item.rotation.set(0.4, 0.2, 0.1);
-  item.visible = false;
-  group.add(item);
+  const cargo = new CargoDisplay(materials.cargoModels);
+  cargo.group.name = 'belt-cargo';
+  group.add(cargo.group);
   let shape: ConveyorShape | null = null;
   let phaseDistance = 0;
   let lastElapsed: number | null = null;
@@ -108,20 +105,18 @@ export function createConveyorVisual(materials: ConveyorMaterials): ConveyorVisu
         phaseDistance = (phaseDistance + dt * 0.5) % spacing;
       }
       positionRibs();
-      item.visible = building.buffer.length > 0;
-      if (item.visible) {
-        itemMaterial.color.set(ITEM_COLORS[building.buffer[0]!]);
+      const carried = building.buffer[0];
+      cargo.show(carried);
+      if (carried) {
         const t = Math.max(0, Math.min(1, building.progress / BUILDING_SPECS.conveyor.cycleSeconds));
         const point = beltPoint(shape!, t);
-        item.position.set(point.x, 0.20, point.z);
-        item.rotation.y = Math.atan2(point.dx, point.dz) + 0.2;
+        cargo.group.position.set(point.x, 0.132, point.z);
+        cargo.group.rotation.y = Math.atan2(point.dx, point.dz) + 0.2;
       }
     },
     dispose() {
       for (const child of structure.children) (child as THREE.Mesh).geometry.dispose();
       ribGeometry.dispose();
-      itemGeometry.dispose();
-      itemMaterial.dispose();
       structure.clear();
       group.clear();
     },

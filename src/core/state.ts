@@ -14,6 +14,10 @@ export function cloneFactoryState(state: FactoryState): FactoryState {
     ...state,
     buildings: state.buildings.map(cloneBuilding),
     starterInventory: { ...state.starterInventory },
+    production: {
+      ...state.production,
+      daily: state.production.daily ? { ...state.production.daily } : null,
+    },
   };
 }
 
@@ -50,6 +54,12 @@ export function factoryStatesEqual(a: FactoryState, b: FactoryState): boolean {
     a.cellSizeMeters !== b.cellSizeMeters ||
     a.credits !== b.credits ||
     a.totalPartsSold !== b.totalPartsSold ||
+    a.production.dronesBuilt !== b.production.dronesBuilt ||
+    a.production.dronesSold !== b.production.dronesSold ||
+    a.production.daily?.day !== b.production.daily?.day ||
+    a.production.daily?.sales !== b.production.daily?.sales ||
+    a.production.daily?.dronesBuilt !== b.production.daily?.dronesBuilt ||
+    a.production.daily?.dronesSold !== b.production.daily?.dronesSold ||
     a.simulationTimeSeconds !== b.simulationTimeSeconds ||
     a.isPaused !== b.isPaused ||
     a.nextBuildingOrdinal !== b.nextBuildingOrdinal ||

@@ -1,5 +1,5 @@
 import { BUILDING_SPECS, BUILDING_TYPES, MAX_BUILDINGS, MAX_LEVELS } from './constants';
-import { isRecipe } from './recipes';
+import { isRawResource, isRecipe } from './recipes';
 import { buildingCost, placementPrice } from './economy';
 import { buildOccupancy, cellKey, isDirection, isInsideGrid, nextDirection } from './grid';
 import { createInitialFactoryState } from './initial-world';
@@ -189,7 +189,7 @@ function placeBuilding(
 }
 
 function validConfiguration(type: Building['type'], value: { resource?: unknown; recipe?: unknown; liftDirection?: unknown }): boolean {
-  return (value.resource === undefined || (type === 'extractor' && (value.resource === 'ore' || value.resource === 'copper')))
+  return (value.resource === undefined || (type === 'extractor' && isRawResource(value.resource)))
     && (value.recipe === undefined || (type === 'processor' && isRecipe(value.recipe)))
     && (value.liftDirection === undefined || (type === 'lift' && (value.liftDirection === 'up' || value.liftDirection === 'down')));
 }

@@ -1,4 +1,7 @@
 import { uiStrings } from './strings';
+import { DAILY_ORDERS, PRODUCTION_MILESTONES, dailyProductionFor } from '../core/production';
+import { ITEM_LABELS, RECIPES, recipeForItem, recipeInputs } from '../core/recipes';
+import type { FactoryState, ItemType } from '../core/types';
 
 export type ScreenName =
   | 'start'
@@ -45,6 +48,27 @@ function el<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
+function productionRow(label: string, value: number, target: number, status = ''): string {
+  const progress = Math.min(value, target);
+  return `<li class="production-row">
+    <span>${label}</span>
+    <span class="production-row__count">${progress} / ${target}</span>
+    <progress aria-label="${label}" max="${target}" value="${progress}"></progress>
+    <span class="production-row__status">${status}</span>
+  </li>`;
+}
+
+function droneComponents(): ItemType[] {
+  const found = new Set<ItemType>();
+  const queue: ItemType[] = ['drone'];
+  for (const item of queue) {
+    if (found.has(item)) continue;
+    found.add(item);
+    queue.push(...(recipeForItem(item)?.inputs ?? []));
+  }
+  return [...found];
+}
+
 const TEMPLATE = `
 <section class="screen screen--start" data-screen="start">
   <div class="screen__texture" aria-hidden="true"></div>
@@ -72,6 +96,7 @@ const TEMPLATE = `
       <button id="btn-start-ar" class="btn btn--primary btn--wide" data-testid="start-ar">${uiStrings.startAr}</button>
       <button id="btn-start-3d" class="btn btn--wide" data-testid="start-3d">${uiStrings.start3d}</button>
       <button id="btn-demo" class="link" data-testid="start-demo">Две башни · работающий пример ↗</button>
+      <button id="btn-drone-demo" class="link" data-testid="start-drone-demo">${uiStrings.droneDemo} · работающий пример ↗</button>
     </div>
 
     <div class="start-links">
@@ -199,14 +224,14 @@ const TEMPLATE = `
         <span class="stat__label">${uiStrings.credits}</span>
         <strong id="hud-credits" class="stat__value" data-testid="hud-credits">120</strong>
       </div>
-      <div class="stat">
+      <div class="stat stat--energy">
         <span class="stat__label">${uiStrings.energy}</span>
         <strong id="hud-energy" class="stat__value">0 / 0</strong>
       </div>
-      <div class="stat stat--wide">
-        <span class="stat__label">${uiStrings.production}</span>
-        <strong id="hud-production" class="stat__value">0 / мин</strong>
-      </div>
+      <button id="btn-production" class="stat stat--wide stat--button" data-testid="open-production" aria-haspopup="dialog" aria-label="${uiStrings.productionAndOrders}" title="${uiStrings.productionAndOrders}">
+        <span class="stat__label">${uiStrings.productionRate}</span>
+        <strong id="hud-production" class="stat__value">0/мин</strong>
+      </button>
       <div class="stat stat--parts">
         <span class="stat__label">${uiStrings.parts}</span>
         <strong id="hud-parts" class="stat__value">0</strong>
@@ -249,6 +274,8 @@ const TEMPLATE = `
   </div>
   <div class="menu-list">
     <button id="menu-demo" class="menu-item" data-testid="menu-demo">Пример: две башни</button>
+    <button id="menu-drone-demo" class="menu-item" data-testid="menu-drone-demo">Пример: ${uiStrings.droneDemo.toLowerCase()}</button>
+    <button id="menu-production" class="menu-item" aria-haspopup="dialog">${uiStrings.productionAndOrders}</button>
     <button id="menu-pause" class="menu-item">${uiStrings.pause}</button>
     <button id="menu-save" class="menu-item" data-testid="menu-save">${uiStrings.save}</button>
     <button id="menu-bind" class="menu-item">${uiStrings.bindMarker}</button>
@@ -263,6 +290,43 @@ const TEMPLATE = `
     <button id="menu-reset" class="menu-item menu-item--danger" data-testid="menu-reset">${uiStrings.resetFactory}</button>
     <button id="menu-about" class="menu-item">${uiStrings.about}</button>
   </div>
+</dialog>
+
+<dialog id="production-dialog" class="dialog production-dialog" aria-labelledby="production-title" data-testid="production-dialog">
+  <div class="dialog__head">
+    <h2 id="production-title">${uiStrings.production}</h2>
+    <button id="production-close" class="icon-btn" aria-label="${uiStrings.close}">✕</button>
+  </div>
+  <div class="production-views" role="group" aria-label="Раздел производства">
+    <button id="production-overview" class="btn btn--small" aria-controls="production-metrics" aria-pressed="true">Показатели</button>
+    <button id="production-chain" class="btn btn--small" aria-controls="recipe-book" aria-pressed="false">Цепочка дрона</button>
+  </div>
+  <div id="production-metrics">
+  <dl class="production-stats">
+    <div><dt>${uiStrings.dronesBuilt}</dt><dd id="production-built">0</dd></div>
+    <div><dt>${uiStrings.dronesSold}</dt><dd id="production-sold">0</dd></div>
+    <div><dt>${uiStrings.parts}</dt><dd id="production-sales">0</dd></div>
+  </dl>
+  <section class="production-section" aria-labelledby="production-milestones-title">
+    <h3 id="production-milestones-title">${uiStrings.productionMilestones}</h3>
+    <ul id="production-milestones" class="production-list"></ul>
+  </section>
+  <section class="production-section" aria-labelledby="production-daily-title">
+    <h3 id="production-daily-title">${uiStrings.dailyOrders}</h3>
+    <time id="production-day" class="production-date"></time>
+    <ul id="production-daily" class="production-list"></ul>
+  </section>
+  </div>
+  <section id="recipe-book" hidden>
+    <label class="recipe-book__select" for="recipe-book-item">Изделие или сырьё
+      <select id="recipe-book-item">
+        ${droneComponents().map((item) => `<option value="${item}">${ITEM_LABELS[item]}</option>`).join('')}
+      </select>
+    </label>
+    <p id="recipe-book-cycle"></p>
+    <ul id="recipe-book-inputs" class="recipe-book__inputs"></ul>
+    <p id="recipe-book-sale">Станция «Отгрузка дрона» продаёт готовый дрон за ${RECIPES['ship-drone'].credits} кр.</p>
+  </section>
 </dialog>
 
 <input id="import-file" type="file" accept="application/json,.json" hidden />
@@ -426,6 +490,25 @@ export class Screens {
   readonly desktopHint = document.querySelector<HTMLElement>('.desktop-hint');
 
   readonly menuDialog = el<HTMLDialogElement>('menu-dialog');
+  readonly productionButton = el<HTMLButtonElement>('btn-production');
+  readonly menuProduction = el<HTMLButtonElement>('menu-production');
+  readonly productionDialog = el<HTMLDialogElement>('production-dialog');
+  readonly productionClose = el<HTMLButtonElement>('production-close');
+  private readonly productionBuilt = el<HTMLElement>('production-built');
+  private readonly productionSold = el<HTMLElement>('production-sold');
+  private readonly productionSales = el<HTMLElement>('production-sales');
+  private readonly productionMilestones = el<HTMLElement>('production-milestones');
+  private readonly productionDay = el<HTMLTimeElement>('production-day');
+  private readonly productionDaily = el<HTMLElement>('production-daily');
+  private readonly productionOverview = el<HTMLButtonElement>('production-overview');
+  private readonly productionChain = el<HTMLButtonElement>('production-chain');
+  private readonly productionMetrics = el<HTMLElement>('production-metrics');
+  private readonly recipeBook = el<HTMLElement>('recipe-book');
+  private readonly recipeBookItem = el<HTMLSelectElement>('recipe-book-item');
+  private readonly recipeBookCycle = el<HTMLElement>('recipe-book-cycle');
+  private readonly recipeBookInputs = el<HTMLElement>('recipe-book-inputs');
+  private readonly recipeBookSale = el<HTMLElement>('recipe-book-sale');
+  private productionSnapshot = '';
   readonly menuPause = el<HTMLButtonElement>('menu-pause');
   readonly menuSave = el<HTMLButtonElement>('menu-save');
   readonly menuBind = el<HTMLButtonElement>('menu-bind');
@@ -488,6 +571,18 @@ export class Screens {
       this.bindingMarkerImage.hidden = true;
     };
     this.aboutPrintLink.href = `${base}marker/room-factory-marker-print.html`;
+
+    this.productionOverview.addEventListener('click', () => this.setProductionView(false));
+    this.productionChain.addEventListener('click', () => this.setProductionView(true));
+    this.recipeBookItem.addEventListener('change', () => this.showRecipe());
+    this.recipeBookInputs.addEventListener('click', (event) => {
+      const ingredient = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-item]');
+      if (!ingredient?.dataset.item) return;
+      this.recipeBookItem.value = ingredient.dataset.item;
+      this.showRecipe();
+      this.recipeBookItem.focus();
+    });
+    this.showRecipe();
 
     for (const text of uiStrings.helpBody) {
       const li = document.createElement('li');
@@ -584,12 +679,53 @@ export class Screens {
 
   setHud(values: HudValues): void {
     this.hudCredits.textContent = String(values.credits);
-    this.hudEnergy.textContent = `${values.supply} / ${values.demand}`;
-    this.hudProduction.textContent = `${values.partsPerMinute} / мин`;
+    this.hudEnergy.textContent = `${values.supply}/${values.demand}`;
+    this.hudProduction.textContent = `${values.partsPerMinute}/мин`;
     this.hudParts.textContent = String(values.totalParts);
     this.energyWarning.hidden = !values.brownout;
     this.pauseButton.textContent = values.paused ? '▶' : 'Ⅱ';
     this.pauseButton.setAttribute('aria-label', values.paused ? uiStrings.resume : uiStrings.pause);
+  }
+
+  setProduction(state: Readonly<FactoryState>, day: string): void {
+    const { production, totalPartsSold } = state;
+    const daily = dailyProductionFor(production, day);
+    const snapshot = [
+      production.dronesBuilt, production.dronesSold, totalPartsSold,
+      daily.day, daily.sales, daily.dronesBuilt, daily.dronesSold,
+    ].join('/');
+    if (snapshot === this.productionSnapshot) return;
+    this.productionSnapshot = snapshot;
+    this.productionBuilt.textContent = String(production.dronesBuilt);
+    this.productionSold.textContent = String(production.dronesSold);
+    this.productionSales.textContent = String(totalPartsSold);
+    this.productionMilestones.innerHTML = PRODUCTION_MILESTONES.map(({ label, metric, target }) =>
+      productionRow(label, production[metric], target, production[metric] >= target ? uiStrings.productionMilestoneDone : ''),
+    ).join('');
+    this.productionDay.dateTime = daily.day;
+    this.productionDay.textContent = daily.day.split('-').reverse().join('.');
+    this.productionDaily.innerHTML = DAILY_ORDERS.map(({ label, metric, target, reward }) =>
+      productionRow(label, daily[metric], target, uiStrings.dailyOrderReward(reward, daily[metric] >= target)),
+    ).join('');
+  }
+
+  private setProductionView(showChain: boolean): void {
+    this.productionOverview.setAttribute('aria-pressed', String(!showChain));
+    this.productionChain.setAttribute('aria-pressed', String(showChain));
+    this.productionMetrics.hidden = showChain;
+    this.recipeBook.hidden = !showChain;
+  }
+
+  private showRecipe(): void {
+    const item = this.recipeBookItem.value as ItemType;
+    const recipe = recipeForItem(item);
+    this.recipeBookCycle.textContent = recipe
+      ? `Станция выпускает за ${recipe.seconds.toLocaleString('ru-RU')} с. Ингредиенты на один цикл:`
+      : 'Выберите этот ресурс в настройках добытчика.';
+    this.recipeBookInputs.innerHTML = recipe ? recipeInputs(recipe).map(([ingredient, total]) =>
+      `<li><button type="button" data-item="${ingredient}"><span>${ITEM_LABELS[ingredient]}</span><span>× ${total} ↗</span></button></li>`,
+    ).join('') : '';
+    this.recipeBookSale.hidden = item !== 'drone';
   }
 
   setTrackingBadge(text: string | null, kind: 'warning' | 'error' | 'info' = 'warning'): void {
@@ -698,6 +834,7 @@ export class Screens {
   private allDialogs(): HTMLDialogElement[] {
     return [
       this.menuDialog,
+      this.productionDialog,
       this.settingsDialog,
       this.helpDialog,
       this.diagnosticsDialog,

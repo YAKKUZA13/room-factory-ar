@@ -9,7 +9,8 @@ import {
   MAX_BUILDINGS,
   MAX_LEVELS,
 } from './constants';
-import { isItem, isRecipe, RECIPES } from './recipes';
+import { isItem, isRawResource, isRecipe, RECIPES } from './recipes';
+import { initialProduction } from './production';
 import {
   cellKey,
   isDirection,
@@ -22,6 +23,7 @@ import type {
   DomainError,
   FactoryState,
   ItemType,
+  ProductionProgress,
 } from './types';
 import { domainError, err, ok, type Result } from './types';
 
@@ -53,6 +55,34 @@ function invalid(message: string, details?: Record<string, unknown>): Result<nev
   return err(domainError('invalid-state', message, details));
 }
 
+function parseProduction(input: unknown, totalSales: number): Result<ProductionProgress> {
+  if (input === undefined) return ok(initialProduction());
+  if (!isRecord(input) ||
+      !isIntegerInRange(input.dronesBuilt, 0, MAX_CREDITS) ||
+      !isIntegerInRange(input.dronesSold, 0, Math.min(input.dronesBuilt, totalSales))) {
+    return invalid('Некорректные показатели производства дронов.');
+  }
+  const { dronesBuilt, dronesSold, daily } = input;
+  if (daily === null) return ok({ dronesBuilt, dronesSold, daily });
+  if (!isRecord(daily) || typeof daily.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(daily.day)) {
+    return invalid('Некорректная дата ежедневных заданий.');
+  }
+  const date = new Date(`${daily.day}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== daily.day) {
+    return invalid('Некорректная дата ежедневных заданий.');
+  }
+  if (!isIntegerInRange(daily.sales, 0, totalSales) ||
+      !isIntegerInRange(daily.dronesBuilt, 0, dronesBuilt) ||
+      !isIntegerInRange(daily.dronesSold, 0, Math.min(dronesSold, daily.sales))) {
+    return invalid('Некорректный прогресс ежедневных заданий.');
+  }
+  return ok({
+    dronesBuilt,
+    dronesSold,
+    daily: { day: daily.day, sales: daily.sales, dronesBuilt: daily.dronesBuilt, dronesSold: daily.dronesSold },
+  });
+}
+
 function parseBuilding(
   input: unknown,
   index: number,
@@ -75,7 +105,7 @@ function parseBuilding(
   const spec = BUILDING_SPECS[type as BuildingType];
   const level = input.level ?? 0;
   if (!isIntegerInRange(level, 0, MAX_LEVELS - 1)) return invalid(`Некорректный этаж здания ${id}.`);
-  if (input.resource !== undefined && (type !== 'extractor' || (input.resource !== 'ore' && input.resource !== 'copper'))) return invalid(`Некорректный ресурс здания ${id}.`);
+  if (input.resource !== undefined && (type !== 'extractor' || !isRawResource(input.resource))) return invalid(`Некорректный ресурс здания ${id}.`);
   if (input.recipe !== undefined && (type !== 'processor' || !isRecipe(input.recipe))) return invalid(`Некорректный рецепт здания ${id}.`);
   if (input.liftDirection !== undefined && (type !== 'lift' || !['up', 'down'].includes(String(input.liftDirection)))) return invalid(`Некорректное направление подъёмника ${id}.`);
   const recipe = RECIPES[isRecipe(input.recipe) ? input.recipe : 'parts'];
@@ -120,7 +150,7 @@ function parseBuilding(
     z: z as number,
     rotation,
     level,
-    ...(type === 'extractor' ? { resource: (input.resource ?? 'ore') as 'ore' | 'copper' } : {}),
+    ...(type === 'extractor' ? { resource: isRawResource(input.resource) ? input.resource : 'ore' } : {}),
     ...(type === 'processor' ? { recipe: (input.recipe ?? 'parts') as Building['recipe'], output: output as ItemType[] } : {}),
     ...(type === 'lift' ? { liftDirection: (input.liftDirection ?? 'up') as 'up' | 'down' } : {}),
     progress: Math.max(0, progress),
@@ -170,6 +200,8 @@ export function validateFactoryState(input: unknown): Result<FactoryState, Domai
   if (!isIntegerInRange(input.totalPartsSold, 0, MAX_CREDITS)) {
     return invalid('Некорректный счётчик проданных деталей.');
   }
+  const production = parseProduction(input.production, input.totalPartsSold);
+  if (!production.ok) return production;
   if (!isFiniteNumber(input.simulationTimeSeconds) || input.simulationTimeSeconds < 0) {
     return invalid('Некорректное время симуляции.');
   }
@@ -225,6 +257,7 @@ export function validateFactoryState(input: unknown): Result<FactoryState, Domai
     cellSizeMeters: input.cellSizeMeters,
     credits: input.credits,
     totalPartsSold: input.totalPartsSold,
+    production: production.value,
     buildings,
     starterInventory,
     simulationTimeSeconds: input.simulationTimeSeconds,

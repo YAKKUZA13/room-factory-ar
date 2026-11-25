@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { LEVEL_HEIGHT, PALETTE } from '../core/constants';
 import type { Building, BuildingType } from '../core/types';
 import type { ConveyorShape } from '../core/conveyor-topology';
+import { recipeOf } from '../core/recipes';
+import { CargoDisplay, CargoModels } from './cargo-models';
 import { createConveyorVisual, type ConveyorMaterials, type ConveyorVisual } from './conveyor-renderer';
 import { createContactPatch, createLedMaterial, createSaleFlash, ledColor, type SaleFlash } from './visual-effects';
 
@@ -17,6 +19,7 @@ export interface VisualMaterials extends ConveyorMaterials {
 
 export function createVisualMaterials(): VisualMaterials {
   return {
+    cargoModels: new CargoModels(),
     amber: new THREE.MeshStandardMaterial({
       color: PALETTE.amber,
       roughness: 0.55,
@@ -121,6 +124,7 @@ export class BuildingVisual {
   private readonly materials: VisualMaterials;
   private readonly ledMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly conveyor: ConveyorVisual | null = null;
+  private readonly cargo: CargoDisplay | null = null;
   private readonly flash: SaleFlash | null = null;
   private readonly rotor: THREE.Object3D | null = null;
   private readonly drill: THREE.Object3D | null = null;
@@ -139,6 +143,9 @@ export class BuildingVisual {
 
     switch (type) {
       case 'lift': {
+        this.cargo = new CargoDisplay(materials.cargoModels);
+        this.cargo.group.position.set(0, 0.26, 0);
+        this.group.add(this.cargo.group);
         this.group.add(box(0.85, 0.08, 0.85, materials.graphite, 0, 0.04));
         for (const x of [-0.34, 0.34]) {
           this.group.add(box(0.06, LEVEL_HEIGHT, 0.06, materials.metal, x, LEVEL_HEIGHT / 2, -0.32));
@@ -153,6 +160,9 @@ export class BuildingVisual {
         this.rotor = this.buildGenerator();
         break;
       case 'extractor':
+        this.cargo = new CargoDisplay(materials.cargoModels);
+        this.cargo.group.position.set(0, 0.61, 0);
+        this.group.add(this.cargo.group);
         this.drill = this.buildExtractor();
         break;
       case 'conveyor':
@@ -160,6 +170,9 @@ export class BuildingVisual {
         this.group.add(this.conveyor.group);
         break;
       case 'processor': {
+        this.cargo = new CargoDisplay(materials.cargoModels);
+        this.cargo.group.position.set(-0.045, 0.878, 0.015);
+        this.group.add(this.cargo.group);
         const flash = createSaleFlash();
         this.flash = flash;
         this.buildProcessor(flash);
@@ -189,12 +202,16 @@ export class BuildingVisual {
     this.flash?.update(dt);
 
     switch (building.type) {
+      case 'lift':
+        this.cargo?.show(building.buffer[0]);
+        break;
       case 'generator':
         if (this.rotor && building.enabled) {
           this.rotor.rotation.y = motionElapsed * 2.4;
         }
         break;
       case 'extractor':
+        this.cargo?.show(building.resource);
         if (this.drill) {
           this.drill.rotation.y = motionElapsed * (powered ? 9 : 0.4);
           this.drill.position.y = 0.2 + Math.sin(motionElapsed * 6) * (powered ? 0.012 : 0.002);
@@ -207,13 +224,16 @@ export class BuildingVisual {
               : 0);
         }
         break;
-      case 'processor':
+      case 'processor': {
+        const recipe = recipeOf(building);
+        this.cargo?.show(recipe.group ? (recipe.output ?? recipe.inputs[0]) : undefined);
         for (const piston of this.pistons) {
           const active = powered && building.buffer.length > 0;
           piston.group.position.y =
             piston.restY + (active ? Math.sin(motionElapsed * piston.speed) * piston.amplitude : 0);
         }
         break;
+      }
       case 'conveyor':
         this.conveyor?.update(building, motionElapsed, powered && !paused);
         break;
@@ -226,6 +246,7 @@ export class BuildingVisual {
 
   dispose(): void {
     this.conveyor?.dispose();
+    this.cargo?.group.removeFromParent();
     this.flash?.dispose();
     for (const material of this.ledMaterials) material.dispose();
     if (this.contactPatch.material instanceof THREE.Material) {

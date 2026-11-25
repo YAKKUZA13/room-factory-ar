@@ -11,6 +11,7 @@ import { getEnergyStats } from './economy';
 import { sortedBuildings } from './grid';
 import { commitTransfers, planTransfers } from './logistics';
 import { cloneFactoryState } from './state';
+import { recordDailyActivity } from './production';
 import type {
   DomainError,
   FactoryCommand,
@@ -29,7 +30,7 @@ export interface StepResult {
   events: SimulationEvent[];
 }
 
-export function simulateStep(state: FactoryState, dtSeconds: number): StepResult {
+export function simulateStep(state: FactoryState, dtSeconds: number, day?: string): StepResult {
   if (state.isPaused) return { state, events: [] };
   if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return { state, events: [] };
 
@@ -77,10 +78,20 @@ export function simulateStep(state: FactoryState, dtSeconds: number): StepResult
             if (recipe.output) {
               building.output ??= [];
               building.output.push(recipe.output);
+              if (recipe.output === 'drone') {
+                next.production.dronesBuilt += 1;
+                recordDailyActivity(next, day, 'dronesBuilt');
+              }
               break;
             }
             next.credits += recipe.credits ?? 0;
             next.totalPartsSold += 1;
+            if (building.recipe === 'ship-drone') {
+              next.production.dronesSold += 1;
+              recordDailyActivity(next, day, 'sales', 'dronesSold');
+            } else {
+              recordDailyActivity(next, day, 'sales');
+            }
             events.push({
               type: 'part-sold',
               buildingId: building.id,
@@ -146,8 +157,8 @@ export class FactoryEngine implements FactoryEngineContract {
     return ok(undefined);
   }
 
-  step(dtSeconds: number): void {
-    const result = simulateStep(this.current, dtSeconds);
+  step(dtSeconds: number, day?: string): void {
+    const result = simulateStep(this.current, dtSeconds, day);
     if (result.state === this.current) return;
     this.current = result.state;
     if (result.events.length > 0) {

@@ -7,6 +7,7 @@ import {
   STARTER_KIT,
 } from './constants';
 import { clampCellSize } from './grid';
+import { initialProduction } from './production';
 import type { BuildingType, FactoryState } from './types';
 
 export interface InitialFactoryOptions {
@@ -35,6 +36,7 @@ export function createInitialFactoryState(options: InitialFactoryOptions = {}): 
     cellSizeMeters: clampCellSize(options.cellSizeMeters ?? DEFAULT_CELL_SIZE_METERS),
     credits: options.credits ?? INITIAL_CREDITS,
     totalPartsSold: 0,
+    production: initialProduction(),
     buildings: [],
     starterInventory: createStarterInventory(),
     simulationTimeSeconds: 0,

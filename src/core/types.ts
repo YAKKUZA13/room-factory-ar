@@ -8,9 +8,27 @@ export type BuildingType = 'generator' | 'extractor' | 'conveyor' | 'processor' 
 /** 0 = +Z, 1 = +X, 2 = -Z, 3 = -X. */
 export type Direction = 0 | 1 | 2 | 3;
 
-export type ItemType = 'ore' | 'copper' | 'plate' | 'wire' | 'alloy' | 'module';
-export type RawResource = 'ore' | 'copper';
-export type RecipeId = 'parts' | 'plate' | 'wire' | 'alloy' | 'module' | 'export';
+export const RAW_RESOURCES = ['ore', 'copper', 'resin', 'sand', 'lithium'] as const;
+export type RawResource = (typeof RAW_RESOURCES)[number];
+export type ItemType =
+  | RawResource | 'plate' | 'wire' | 'alloy' | 'module'
+  | 'pellets' | 'plastic' | 'copper-foil' | 'insulated-wire' | 'silicon' | 'chip' | 'board' | 'programmable-board' | 'controller'
+  | 'frame' | 'motors' | 'rotors' | 'cell' | 'battery' | 'airframe' | 'avionics' | 'drone';
+export type RecipeId =
+  | Exclude<ItemType, RawResource> | 'parts' | 'export' | 'ship-drone';
+
+export interface DailyProduction {
+  day: string;
+  sales: number;
+  dronesBuilt: number;
+  dronesSold: number;
+}
+
+export interface ProductionProgress {
+  dronesBuilt: number;
+  dronesSold: number;
+  daily: DailyProduction | null;
+}
 
 export type BuildingId = string;
 
@@ -35,7 +53,7 @@ export interface Building {
   liftDirection?: 'up' | 'down';
   /** Seconds accumulated in the current production operation. */
   progress: number;
-  /** Capacity is enforced per building type. Only `ore` exists in the MVP. */
+  /** Capacity is enforced per building type and recipe. */
   buffer: ItemType[];
   purchaseSource: 'starter' | 'credits';
   enabled: boolean;
@@ -50,6 +68,7 @@ export interface FactoryState {
   cellSizeMeters: number;
   credits: number;
   totalPartsSold: number;
+  production: ProductionProgress;
   buildings: Building[];
   starterInventory: Record<BuildingType, number>;
   simulationTimeSeconds: number;
@@ -132,7 +151,7 @@ export type Unsubscribe = () => void;
 export interface FactoryEngine {
   readonly state: Readonly<FactoryState>;
   dispatch(command: FactoryCommand): Result<void, DomainError>;
-  step(dtSeconds: number): void;
+  step(dtSeconds: number, day?: string): void;
   subscribe(listener: (state: Readonly<FactoryState>) => void): Unsubscribe;
 }
 

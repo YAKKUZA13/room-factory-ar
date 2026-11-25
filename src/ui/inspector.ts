@@ -1,6 +1,7 @@
 import { BUILDING_SPECS, DIRECTION_LABELS } from '../core/constants';
 import type { Building, FactoryCommand, RawResource, RecipeId } from '../core/types';
-import { ITEM_LABELS, RECIPES, recipeOf } from '../core/recipes';
+import { hasIngredients, ITEM_LABELS, recipeInputs, recipeOf } from '../core/recipes';
+import { RECIPE_OPTIONS, RESOURCE_OPTIONS } from './recipe-options';
 import { uiStrings } from './strings';
 
 export interface InspectorCallbacks {
@@ -136,8 +137,8 @@ export class Inspector {
     this.currentId = building.id;
     if (this.currentType !== building.type) {
       this.configureSelect.innerHTML = building.type === 'processor'
-        ? Object.entries(RECIPES).map(([id, recipe]) => `<option value="${id}">${recipe.label}</option>`).join('')
-        : building.type === 'extractor' ? '<option value="ore">Руда</option><option value="copper">Медь</option>'
+        ? RECIPE_OPTIONS
+        : building.type === 'extractor' ? RESOURCE_OPTIONS
           : '<option value="up">На этаж выше ↑</option><option value="down">На этаж ниже ↓</option>';
       this.currentType = building.type;
     }
@@ -147,10 +148,11 @@ export class Inspector {
     const spec = BUILDING_SPECS[building.type];
     this.typeEl.textContent = `${spec.label} / ${String((building.level ?? 0) + 1).padStart(2, '0')}`;
 
+    const recipe = building.type === 'processor' ? recipeOf(building) : undefined;
     const working =
       building.enabled &&
       !brownout &&
-      (building.type === 'generator' ||
+      (recipe ? hasIngredients(building) && !building.output?.length : building.type === 'generator' ||
         (building.type === 'conveyor' ? true : building.buffer.length > 0));
     this.statusEl.textContent = !building.enabled
       ? uiStrings.buildingStatus.disabled
@@ -173,10 +175,18 @@ export class Inspector {
 
     if (building.type === 'lift') this.directionEl.textContent = `${building.rotation * 90}° · выход; ${building.liftDirection === 'down' ? 'вниз' : 'вверх'} при отсутствии выхода`;
     else if (building.type !== 'generator') this.directionEl.textContent = `${building.rotation * 90}° · выход${building.type === 'conveyor' ? ', вход автоматически' : building.type === 'processor' ? ', вход с любой стороны' : ''}`;
-    const capacity = building.type === 'processor' ? recipeOf(building).inputs.length : spec.bufferCapacity;
-    this.bufferEl.textContent =
-      capacity === 0 ? '—' : `${building.buffer.map(item => ITEM_LABELS[item]).join(', ') || 'Пусто'} · ${building.buffer.length}/${capacity}${building.output?.length ? ' → ' + building.output.map(item => ITEM_LABELS[item]).join(', ') : ''}`;
-    const seconds = building.type === 'processor' ? recipeOf(building).seconds : spec.cycleSeconds;
+    const output = building.output?.length ? ' → ' + building.output.map((item) => ITEM_LABELS[item]).join(', ') : '';
+    if (recipe) {
+      const inputs = recipeInputs(recipe).map(([item, total]) =>
+        `${ITEM_LABELS[item]} ${building.buffer.filter((stored) => stored === item).length}/${total}`,
+      );
+      this.bufferEl.textContent = inputs.join(' · ') + output;
+    } else {
+      this.bufferEl.textContent = spec.bufferCapacity
+        ? `${building.buffer.map(item => ITEM_LABELS[item]).join(', ') || 'Пусто'} · ${building.buffer.length}/${spec.bufferCapacity}`
+        : '—';
+    }
+    const seconds = recipe?.seconds ?? spec.cycleSeconds;
     const progress = seconds > 0 ? building.progress / seconds : 0;
     this.progressFill.style.width = `${Math.min(100, Math.max(0, progress * 100)).toFixed(1)}%`;
 

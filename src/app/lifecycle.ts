@@ -1,5 +1,6 @@
 import type { FactoryEngine } from '../core/simulation';
 import { FixedStepClock } from '../core/simulation';
+import { localCalendarDay } from '../core/production';
 
 /** One simulation driver per page session, independent of renderer FPS. */
 export class SimulationDriver {
@@ -10,7 +11,7 @@ export class SimulationDriver {
       this.clock.reset();
       return 0;
     }
-    return this.clock.update(deltaSeconds, (dt) => engine.step(dt));
+    return this.clock.update(deltaSeconds, (dt) => engine.step(dt, localCalendarDay(new Date())));
   }
 
   reset(): void {

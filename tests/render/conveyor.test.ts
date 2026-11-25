@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createConveyorVisual } from '../../src/render/conveyor-renderer';
 import { beltPoint } from '../../src/render/conveyor-path';
 import { createVisualMaterials, disposeVisualMaterials } from '../../src/render/building-factory';
@@ -7,11 +7,35 @@ import { FactoryRenderer } from '../../src/render/factory-renderer';
 import { createInitialFactoryState } from '../../src/core/initial-world';
 import { must, place } from '../helpers';
 import { applyCommand } from '../../src/core/commands';
-import type { Building } from '../../src/core/types';
+import { ITEM_LABELS } from '../../src/core/recipes';
+import type { Building, ItemType } from '../../src/core/types';
 
 const building: Building = { id: 'b1', type: 'conveyor', x: 0, z: 0, rotation: 0, buffer: ['ore'], progress: 0.375, enabled: true, purchaseSource: 'starter' };
 
 describe('continuous conveyor geometry', () => {
+  it('gives every item a low-poly model and keeps shared cargo geometry alive until the scene disposes it', () => {
+    const materials = createVisualMaterials();
+    for (const item of Object.keys(ITEM_LABELS) as ItemType[]) {
+      const model = materials.cargoModels.instantiate(item);
+      expect(model.name).toBe(`cargo-${item}`);
+      expect(new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).x).toBeGreaterThan(0);
+    }
+    const first = createConveyorVisual(materials);
+    const second = createConveyorVisual(materials);
+    first.update({ ...building, buffer: ['board'] }, 0, true);
+    second.update({ ...building, buffer: ['board'] }, 0, true);
+    const firstBoard = first.group.getObjectByName('cargo-board')!.children[0] as THREE.Mesh;
+    const secondBoard = second.group.getObjectByName('cargo-board')!.children[0] as THREE.Mesh;
+    expect(firstBoard.geometry).toBe(secondBoard.geometry);
+    const disposed = vi.fn();
+    firstBoard.geometry.addEventListener('dispose', disposed);
+    first.dispose();
+    expect(disposed).not.toHaveBeenCalled();
+    second.dispose();
+    disposeVisualMaterials(materials);
+    expect(disposed).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['straight', 'from-left', 'from-right'] as const)('%s has an open animated surface and carries cargo along the same path', shape => {
     const materials = createVisualMaterials(), visual = createConveyorVisual(materials);
     visual.setShape(shape);

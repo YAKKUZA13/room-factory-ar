@@ -1,5 +1,6 @@
 import { BUILDING_SPECS, BUILDING_TYPES, MAX_LEVELS } from '../core/constants';
 import { RECIPES } from '../core/recipes';
+import { formatRecipeInputs, RECIPE_OPTIONS, RESOURCE_OPTIONS } from './recipe-options';
 import type { BuildingType, Direction, FactoryState, RawResource, RecipeId } from '../core/types';
 import { moduleIcon } from './icons';
 
@@ -20,6 +21,7 @@ export class Toolbar {
   private readonly options: HTMLElement;
   private readonly resource: HTMLSelectElement;
   private readonly recipe: HTMLSelectElement;
+  private readonly recipePreview: HTMLOutputElement;
   private readonly liftDirection: HTMLSelectElement;
   private readonly confirm: HTMLButtonElement;
   private readonly rotation: HTMLElement;
@@ -28,8 +30,9 @@ export class Toolbar {
   constructor(private readonly root: HTMLElement, callbacks: ToolbarCallbacks) {
     root.innerHTML = `<div class="module-heading"><span>Модули</span><span>Выберите → разместите</span></div><div class="toolbar" role="toolbar" aria-label="Модули завода"></div>
       <div class="tool-options" hidden>
-        <label data-option="extractor">Добывать<select data-testid="placement-resource"><option value="ore">Руда</option><option value="copper">Медь</option></select></label>
-        <label data-option="processor">Рецепт<select data-testid="placement-recipe">${Object.entries(RECIPES).map(([id, r]) => `<option value="${id}">${r.label}</option>`).join('')}</select></label>
+        <label data-option="extractor">Добывать<select data-testid="placement-resource">${RESOURCE_OPTIONS}</select></label>
+        <label data-option="processor">Рецепт<select data-testid="placement-recipe" aria-describedby="placement-recipe-inputs">${RECIPE_OPTIONS}</select></label>
+        <output id="placement-recipe-inputs" class="recipe-note" hidden></output>
         <label data-option="lift">Направление<select data-testid="placement-lift-direction"><option value="up">На этаж выше ↑</option><option value="down">На этаж ниже ↓</option></select></label>
       </div>
       <div class="toolbar-utils"><button class="util-btn" data-testid="tool-rotate-left" aria-label="Повернуть влево на 90 градусов">↶</button><button class="util-btn rotation-readout" data-testid="tool-rotate" aria-label="Повернуть вправо на 90 градусов"><span>Поворот</span><strong>0°</strong> ↷</button><button class="util-btn util-btn--danger" data-testid="tool-delete">Удалить</button><button class="util-btn" data-testid="tool-cancel">Отмена</button><button class="util-btn util-btn--confirm" data-testid="tool-confirm" hidden>Установить</button></div>`;
@@ -54,6 +57,13 @@ export class Toolbar {
     this.options = root.querySelector('.tool-options')!;
     this.resource = root.querySelector('[data-testid="placement-resource"]')!;
     this.recipe = root.querySelector('[data-testid="placement-recipe"]')!;
+    this.recipePreview = root.querySelector<HTMLOutputElement>('#placement-recipe-inputs')!;
+    const updateRecipePreview = () => {
+      const recipe = RECIPES[this.recipe.value as RecipeId];
+      this.recipePreview.textContent = recipe.group ? `Нужно ${formatRecipeInputs(recipe)}` : '';
+    };
+    this.recipe.addEventListener('change', updateRecipePreview);
+    updateRecipePreview();
     this.liftDirection = root.querySelector('[data-testid="placement-lift-direction"]')!;
     this.floors = document.createElement('nav'); this.floors.className = 'floor-control';
     this.floors.setAttribute('aria-label', 'Этаж завода');
@@ -95,6 +105,7 @@ export class Toolbar {
     }
     this.rotation.textContent = `${rotation * 90}°`;
     this.options.hidden = tool.mode !== 'place' || !['extractor', 'processor', 'lift'].includes(tool.buildingType);
+    this.recipePreview.hidden = tool.mode !== 'place' || tool.buildingType !== 'processor';
     for (const label of this.options.querySelectorAll<HTMLElement>('label')) label.hidden = tool.mode !== 'place' || label.dataset.option !== tool.buildingType;
     this.root.querySelector('[data-testid="tool-cancel"]')!.toggleAttribute('hidden', tool.mode === 'inspect');
     this.root.querySelector('[data-testid="tool-delete"]')!.setAttribute('aria-pressed', String(tool.mode === 'delete'));

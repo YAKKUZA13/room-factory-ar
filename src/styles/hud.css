@@ -7,6 +7,9 @@
 .stat{display:flex;flex-direction:column;gap:5px;padding:4px 20px;border-left:1px solid var(--line);background:var(--panel);min-width:84px}
 .stat__label{font:9px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--metal)}
 .stat__value{font:19px var(--font-mono);white-space:nowrap;letter-spacing:-.06em}
+.stat--button{align-items:flex-start;text-align:left}
+.stat--button .stat__label{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.stat--button:hover{background:var(--panel-solid)}
 .hud__actions{display:flex;gap:6px}
 .icon-btn{display:inline-grid;place-items:center;width:44px;height:44px;background:var(--panel);border:1px solid var(--line);border-radius:2px;font-size:17px}
 .energy-warning,.tracking-badge{position:absolute;top:62px;left:0;background:var(--panel);padding:8px 12px;font:11px var(--font-mono);max-width:90vw}
@@ -41,6 +44,8 @@
 .tool-options{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
 .tool-options label,.inspector__configuration{display:flex;align-items:center;justify-content:space-between;gap:8px;font:10px var(--font-mono);color:var(--metal)}
 .tool-options select,.inspector select{min-height:44px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;font:11px var(--font-sans);max-width:80%;color:var(--light);min-width:0}
+.recipe-note{display:block;padding-top:6px;font-size:11px;color:var(--metal)}
+.recipe-note:empty{display:none}
 .floor-control{position:absolute;left:24px;top:42%;display:flex;flex-direction:column;align-items:center;width:46px;background:var(--panel);border:1px solid var(--line)}
 .floor-caption{font:8px var(--font-mono);text-transform:uppercase;padding:10px 0 4px;color:var(--metal)}
 .floor-control button{width:44px;height:44px;font-size:18px}
@@ -80,3 +85,8 @@
 }
 @media(max-height:500px) and (orientation:landscape){.toolbar-root{left:auto;right:10px;bottom:10px;transform:none;width:345px}.tool{min-height:62px;gap:4px}.tool svg{width:18px;height:18px}.module-heading{display:none}.tutorial{display:none}.floor-control{top:30%;left:10px}.placement-hint{left:30%;bottom:12px;max-width:30%}.inspector-root{left:auto;right:10px;bottom:180px;width:285px;max-height:calc(100% - 250px)}}
 @media(max-width:700px){.stat--parts{display:none}}
+@media(max-width:700px){
+ .hud__stats .stat{padding-inline:5px}.hud__stats .stat--energy{flex:1.3}
+ .hud__stats .stat__value{font-size:clamp(11px,3.1vw,16px)}
+}
+@media(max-width:360px){.hud__actions>.icon-btn{width:36px}}

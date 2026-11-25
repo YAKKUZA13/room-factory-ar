@@ -28,6 +28,8 @@ import { getEnergyStats, placementPrice } from '../core/economy';
 import { countItems, nextDirection } from '../core/grid';
 import { createInitialFactoryState } from '../core/initial-world';
 import { createTowerDemo } from '../core/tower-demo';
+import { createDroneDemo } from '../core/drone-demo';
+import { localCalendarDay } from '../core/production';
 import { firstLineStep } from '../core/tutorial';
 import { cloneFactoryState } from '../core/state';
 import type {
@@ -77,6 +79,7 @@ export interface AppControllerOptions {
 }
 
 type AppMode = 'desktop' | 'ar' | 'mock';
+type FactoryDemo = 'towers' | 'drones';
 type BindingMode = 'bind' | 'rebind';
 
 interface DebugApi {
@@ -339,11 +342,16 @@ export class AppController {
     document.getElementById('btn-help-game')!.addEventListener('click', () => this.screens.openDialog(this.screens.helpDialog));
     document.getElementById('help-demo')!.addEventListener('click', () => {
       this.screens.closeDialog(this.screens.helpDialog);
-      void this.openTowerDemo();
+      void this.openFactoryDemo('towers');
     });
     document.getElementById('btn-reset-view')!.addEventListener('click', () => this.viewer?.resetView(this.activeLevel * LEVEL_HEIGHT * this.engine.state.cellSizeMeters));
-    document.getElementById('btn-demo')!.addEventListener('click', () => void this.openTowerDemo());
-    document.getElementById('menu-demo')!.addEventListener('click', () => void this.openTowerDemo());
+    document.getElementById('btn-demo')!.addEventListener('click', () => void this.openFactoryDemo('towers'));
+    document.getElementById('menu-demo')!.addEventListener('click', () => void this.openFactoryDemo('towers'));
+    document.getElementById('btn-drone-demo')!.addEventListener('click', () => void this.openFactoryDemo('drones'));
+    document.getElementById('menu-drone-demo')!.addEventListener('click', () => void this.openFactoryDemo('drones'));
+    this.screens.productionButton.addEventListener('click', () => this.openProduction());
+    this.screens.menuProduction.addEventListener('click', () => this.openProduction());
+    this.screens.productionClose.addEventListener('click', () => this.screens.closeDialog(this.screens.productionDialog));
     this.screens.start3d.addEventListener('click', () => this.startDesktop());
     this.screens.continue3d.addEventListener('click', () => this.startDesktop());
     this.screens.startAr.addEventListener('click', () => void this.startArFlow());
@@ -1254,6 +1262,7 @@ export class AppController {
     }
     this.simulation.tick(deltaSeconds, this.engine);
     this.processSimulationEvents();
+    if (this.screens.productionDialog.open) this.syncProduction();
     if (this.mode !== 'desktop') {
       this.anchor.update(deltaSeconds);
       const displayPose = this.anchor.getDisplayFactoryPose();
@@ -1606,17 +1615,40 @@ export class AppController {
     if (cell?.x === this.pendingCell.x && cell.z === this.pendingCell.z) this.confirmPlacement();
   }
 
-  private async openTowerDemo(): Promise<void> {
-    this.screens.menuDialog.close();
-    if (this.engine.state.buildings.length) {
-      const result = await this.screens.confirm({title:'Открыть пример?',message:'Текущий завод будет заменён работающим примером двух башен. Экспортируйте его через меню, если хотите сохранить отдельно.',confirmLabel:'Открыть пример'});
+  private openProduction(): void {
+    this.screens.closeDialog(this.screens.menuDialog);
+    this.syncProduction();
+    this.screens.openDialog(this.screens.productionDialog);
+  }
+
+  private syncProduction(): void {
+    this.screens.setProduction(this.engine.state, localCalendarDay(new Date()));
+  }
+
+  private async openFactoryDemo(demo: FactoryDemo): Promise<void> {
+    this.screens.closeDialog(this.screens.menuDialog);
+    const state = this.engine.state;
+    if (state.buildings.length || state.totalPartsSold || state.production.dronesBuilt) {
+      const title = demo === 'drones' ? uiStrings.droneDemo : 'Две башни';
+      const result = await this.screens.confirm({
+        title: 'Открыть пример?',
+        message: `Пример «${title}» заменит текущий завод. Экспортируйте свой завод через меню, чтобы сохранить его отдельно.`,
+        confirmLabel: 'Открыть пример',
+      });
       if (!result.confirmed) return;
     }
-    this.engine.replaceState(createTowerDemo(this.engine.state.cellSizeMeters));
-    this.tutorial = {step:5,complete:true};
+    this.tutorial = { step: 5, complete: true };
     this.tutorialDirty = true;
-    if (this.mode === 'ar') await this.go3d();
-    else this.startDesktop();
+    window.clearTimeout(this.tutorialHideTimer);
+    this.screens.hideTutorial();
+    this.productionTimes = [];
+    const factory = demo === 'drones' ? createDroneDemo(state.cellSizeMeters) : createTowerDemo(state.cellSizeMeters);
+    this.engine.replaceState(factory);
+    const inAr = this.mode !== 'desktop' && this.sessionStarted && !this.screens.gameUi.hidden && this.canEdit();
+    if (!inAr) {
+      if (this.mode === 'ar') await this.go3d();
+      else this.startDesktop();
+    }
     this.changeLevel(0);
     this.toggleOverview();
     this.commandDirty = true;
@@ -1794,6 +1826,7 @@ export class AppController {
   }
 
   private applyImportedSave(save: PersistedSaveV1): void {
+    this.productionTimes = [];
     this.engine.replaceState(save.factory);
     this.replaceAnchor(save.anchor);
     this.tutorial = save.tutorial;
@@ -1875,6 +1908,7 @@ export class AppController {
       danger: true,
     });
     if (!result.confirmed) return;
+    this.productionTimes = [];
     this.engine.replaceState(createInitialFactoryState());
     this.replaceAnchor({ kind: 'unbound' });
     this.tutorial = defaultTutorialState();
@@ -1897,6 +1931,7 @@ export class AppController {
       extraLabel: uiStrings.resetAnchor,
     });
     if (!result.confirmed) return;
+    this.productionTimes = [];
     this.engine.dispatch({ type: 'reset-factory' });
     if (result.extra) {
       const currentPose = this.anchor.getWorldFactoryPose();
